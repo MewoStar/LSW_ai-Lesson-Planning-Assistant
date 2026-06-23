@@ -1,0 +1,28 @@
+# ============================================
+# 备课助手 配置文件示例
+# 复制此文件为 config.yaml 并填入你的 API Key
+# ============================================
+
+# 使用 智谱 API（有免费额度，无需下载模型）
+api_key: your-api-key-here
+base_url: https://open.bigmodel.cn/api/paas/v4
+model: glm-4-flash
+
+# 其他可选模型：
+# model: glm-4               （更强）
+
+# 如果换 DeepSeek：
+# api_key: sk-your-key
+# base_url: https://api.deepseek.com/v1
+# model: deepseek-chat
+
+# 如果换本地 Ollama（需要先下载模型）：
+# api_key: ollama
+# base_url: http://localhost:11434/v1
+# model: qwen2.5:7b-instruct
+
+# 输出设置
+output_dir: .                    # 文件保存目录，. 表示当前目录
+temperature: 0.7                 # 0.5=严谨 0.8=有创意
+max_tokens: 3072                 # 单次回复最大长度（越大越慢）
+max_history: 6                   # 最大历史消息轮数（越多越慢）
