@@ -340,13 +340,6 @@
             display: flex; gap: 12px; margin-top: 8px;
             font-size: 11px; color: var(--text-secondary);
         }
-        .file-badge {
-            display: inline-flex; align-items: center; gap: 4px;
-            padding: 3px 10px; background: #ecfdf5; color: #059669;
-            border-radius: 4px; font-size: 12px;
-        }
-        .file-badge a { color: inherit; text-decoration: none; }
-        .file-badge a:hover { text-decoration: underline; }
 
         /* 输入区 */
         .input-area {
@@ -396,6 +389,78 @@
         .send-btn:hover { background: #6d28d9; }
         .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+        .upload-btn {
+            padding: 12px 14px;
+            background: #fff;
+            color: #555;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 18px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+            white-space: nowrap;
+            align-self: flex-end;
+            line-height: 1;
+        }
+        .upload-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(124,58,237,0.05);
+        }
+        .attachment-previews {
+            max-width: 900px;
+            margin: 0 auto 10px auto;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .attached-card {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px 6px 12px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+            border: 1px solid #e0e7ff;
+            font-size: 12.5px;
+            color: #3730a3;
+            max-width: 360px;
+        }
+        .attached-card .icon { font-size: 15px; }
+        .attached-card .meta { display: flex; flex-direction: column; line-height: 1.3; }
+        .attached-card .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+        .attached-card .sub { color: #6b7280; font-size: 11px; }
+        .attached-card .close {
+            border: none;
+            background: rgba(255,255,255,0.7);
+            color: #9ca3af;
+            cursor: pointer;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            font-size: 13px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+        .attached-card .close:hover { background: #fee2e2; color: #dc2626; }
+        .attached-card.loading { opacity: 0.7; }
+        .attached-card.loading .sub::after {
+            content: ' 上传中';
+            display: inline-block;
+            animation: dots 1.2s infinite;
+        }
+        @keyframes dots {
+            0% { content: ' 上传中'; }
+            25% { content: ' 上传中.'; }
+            50% { content: ' 上传中..'; }
+            75% { content: ' 上传中...'; }
+            100% { content: ' 上传中'; }
+        }
+
         .typing-dots { display: inline-flex; gap: 3px; }
         .typing-dots span {
             width: 5px; height: 5px; background: #999; border-radius: 50%;
@@ -421,6 +486,7 @@
             gap: 6px;
             margin-top: 12px;
             box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+            user-select: none;
         }
         .word-btn:hover {
             background: linear-gradient(135deg, #5568d3 0%, #6b4199 100%);
@@ -431,11 +497,73 @@
             transform: translateY(0);
             box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
         }
+        .word-btn:disabled {
+            opacity: 0.6;
+            cursor: wait;
+            transform: none;
+        }
+
+        /* PPT 下载按钮样式 */
+        .ppt-btn {
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 12px;
+            margin-left: 8px;
+            box-shadow: 0 2px 8px rgba(249, 115, 22, 0.3);
+            user-select: none;
+        }
+        .ppt-btn:hover {
+            background: linear-gradient(135deg, #ea6c0c 0%, #d4500a 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4);
+        }
+        .ppt-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 6px rgba(249, 115, 22, 0.3);
+        }
+        .ppt-btn:disabled {
+            opacity: 0.6;
+            cursor: wait;
+            transform: none;
+        }
+        .ppt-badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 12px; background: #fff7ed; color: #ea580c;
+            border-radius: 6px; font-size: 12px;
+            transition: all 0.2s;
+        }
+        .ppt-badge:hover {
+            background: #ffedd5;
+            box-shadow: 0 1px 4px rgba(249, 115, 22, 0.2);
+        }
+        .file-badge {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 12px; background: #ecfdf5; color: #059669;
+            border-radius: 6px; font-size: 12px;
+            transition: all 0.2s;
+        }
+        .file-badge:hover {
+            background: #d1fae5;
+            box-shadow: 0 1px 4px rgba(5, 150, 105, 0.2);
+        }
 
         .msg-actions {
             margin-top: 12px;
             padding-top: 12px;
             border-top: 1px solid var(--border);
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
         }
 
         /* 思考过程对话框 */
@@ -630,43 +758,48 @@
                 <div class="welcome-title">备课助手</div>
                 <div class="welcome-desc">输入备课需求，AI 自动生成教案、课件、习题等教学资源</div>
                 <div class="hint-grid">
-                    <div class="hint-card" onclick="fill('设计初中物理牛顿第一定律的教案，45分钟，包含教学目标和习题')">
-                        <div class="emoji">⚛️</div>
-                        <div class="title">物理教案</div>
-                        <div class="desc">牛顿第一定律完整教案</div>
+                    <div class="hint-card" onclick="location.href='/module/ppt_generate'" style="cursor:pointer;">
+                        <div class="emoji">📊</div>
+                        <div class="title">PPT生成</div>
+                        <div class="desc">一键生成教学课件PPT</div>
                     </div>
-                    <div class="hint-card" onclick="fill('为高中数学生成10道函数单调性练习题，分基础/提高/拓展三级，带答案解析')">
-                        <div class="emoji">📐</div>
-                        <div class="title">数学习题</div>
-                        <div class="desc">分层练习题+解析</div>
+                    <div class="hint-card" onclick="location.href='/module/ppt_outline'" style="cursor:pointer;">
+                        <div class="emoji">📋</div>
+                        <div class="title">PPT讲解纲要</div>
+                        <div class="desc">每页PPT的逐页讲解稿</div>
                     </div>
-                    <div class="hint-card" onclick="fill('写一个Python程序可视化傅里叶变换过程，代码有详细中文注释')">
-                        <div class="emoji">💻</div>
-                        <div class="title">教学代码</div>
-                        <div class="desc">Python演示程序</div>
+                    <div class="hint-card" onclick="location.href='/module/lesson_plan'" style="cursor:pointer;">
+                        <div class="emoji">📖</div>
+                        <div class="title">教案生成</div>
+                        <div class="desc">标准格式45分钟完整教案</div>
                     </div>
-                    <div class="hint-card" onclick="fill('制作人工智能基础课程期末复习提纲，涵盖机器学习、深度学习、计算机视觉')">
-                        <div class="emoji">🤖</div>
-                        <div class="title">复习提纲</div>
-                        <div class="desc">AI课程知识点总结</div>
+                    <div class="hint-card" onclick="location.href='/module/exercises'" style="cursor:pointer;">
+                        <div class="emoji">📝</div>
+                        <div class="title">习题生成</div>
+                        <div class="desc">分层习题+详细答案解析</div>
                     </div>
-                    <div class="hint-card" onclick="fill('为职业院校传感器技术课程设计STM32温度传感器实训方案，含器材清单和代码框架')">
-                        <div class="emoji">🔧</div>
-                        <div class="title">实训方案</div>
-                        <div class="desc">传感器技术实践指导</div>
+                    <div class="hint-card" onclick="location.href='/module/homework_analysis'" style="cursor:pointer;">
+                        <div class="emoji">📊</div>
+                        <div class="title">作业分析</div>
+                        <div class="desc">作业批改与学情数据分析</div>
                     </div>
-                    <div class="hint-card" onclick="fill('设计幼儿园环保主题班会方案，适合大班，包含游戏和手工制作')">
-                        <div class="emoji">🌱</div>
-                        <div class="title">主题班会</div>
-                        <div class="desc">幼儿园活动策划</div>
+                    <div class="hint-card" onclick="location.href='/module/history'" style="cursor:pointer;">
+                        <div class="emoji">🕒</div>
+                        <div class="title">历史记录</div>
+                        <div class="desc">查看所有AI生成记录与历史会话</div>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="input-area">
+            <div class="attachment-previews" id="attachment-previews"></div>
+            <input type="file" id="file-input" multiple
+                accept=".md,.txt,.docx,.xlsx,.csv,.pdf" style="display:none"
+                onchange="onPickFile(event)">
             <div class="input-row">
-                <textarea id="input" rows="1" placeholder="输入备课需求..."
+                <button class="upload-btn" title="上传教案模板 / 学生作业成绩表 / 参考资料" onclick="document.getElementById('file-input').click()">📎</button>
+                <textarea id="input" rows="1" placeholder="输入备课需求... 或上传教案模板 / 成绩表让我自动处理"
                     onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send()}"></textarea>
                 <button class="send-btn" id="send-btn" onclick="send()">
                     ⬆ 发送
@@ -681,6 +814,7 @@
         const idx = {};
         let manageMode = false;
         let selectedSessions = new Set();
+        let attachedFiles = [];  // 上传好的文件 [{id,name,kind,text,chars}]
 
         function initSession() {
             const id = Date.now().toString(36);
@@ -710,7 +844,7 @@
 
         async function loadSessionDetail(id) {
             try {
-                const response = await fetch(`/api/session/${id}`);
+                const response = await fetch(`/api/session/${id}`, { credentials: 'same-origin' });
                 if (!response.ok) return;
                 const data = await response.json();
                 if (sessions[id]) {
@@ -730,8 +864,11 @@
 
         async function loadSessions() {
             try {
-                const response = await fetch('/api/sessions');
-                if (!response.ok) return;
+                const response = await fetch('/api/sessions', { credentials: 'same-origin' });
+                if (!response.ok) {
+                    initSession();
+                    return;
+                }
                 const data = await response.json();
                 if (data.sessions && data.sessions.length > 0) {
                     for (const s of data.sessions) {
@@ -741,12 +878,11 @@
                             createdAt: new Date()
                         };
                     }
-                    activeSession = data.sessions[0].id;
-                    await loadSessionDetail(activeSession);
+                    renderSessionList();
+                    initSession();
                 } else {
                     initSession();
                 }
-                renderSessionList();
                 updateTopbar();
             } catch (e) {
                 console.error('加载会话列表失败:', e);
@@ -841,7 +977,7 @@
             if (!confirm('确定要删除这个对话吗？')) return;
 
             try {
-                await fetch(`/api/session/${id}`, { method: 'DELETE' });
+                await fetch(`/api/session/${id}`, { method: 'DELETE', credentials: 'same-origin' });
                 delete sessions[id];
                 selectedSessions.delete(id);
 
@@ -906,35 +1042,35 @@
                     <div class="welcome-title">备课助手</div>
                     <div class="welcome-desc">输入备课需求，AI 自动生成教案、课件、习题等教学资源</div>
                     <div class="hint-grid">
-                        <div class="hint-card" onclick="fill('设计初中物理牛顿第一定律的教案，45分钟，包含教学目标和习题')">
-                            <div class="emoji">⚛️</div>
-                            <div class="title">物理教案</div>
-                            <div class="desc">牛顿第一定律完整教案</div>
+                        <div class="hint-card" onclick="location.href='/module/ppt_generate'" style="cursor:pointer;">
+                            <div class="emoji">📊</div>
+                            <div class="title">PPT生成</div>
+                            <div class="desc">一键生成教学课件PPT</div>
                         </div>
-                        <div class="hint-card" onclick="fill('为高中数学生成10道函数单调性练习题，分基础/提高/拓展三级，带答案解析')">
-                            <div class="emoji">📐</div>
-                            <div class="title">数学习题</div>
-                            <div class="desc">分层练习题+解析</div>
+                        <div class="hint-card" onclick="location.href='/module/ppt_outline'" style="cursor:pointer;">
+                            <div class="emoji">📋</div>
+                            <div class="title">PPT讲解纲要</div>
+                            <div class="desc">每页PPT的逐页讲解稿</div>
                         </div>
-                        <div class="hint-card" onclick="fill('写一个Python程序可视化傅里叶变换过程，代码有详细中文注释')">
-                            <div class="emoji">💻</div>
-                            <div class="title">教学代码</div>
-                            <div class="desc">Python演示程序</div>
+                        <div class="hint-card" onclick="location.href='/module/lesson_plan'" style="cursor:pointer;">
+                            <div class="emoji">📖</div>
+                            <div class="title">教案生成</div>
+                            <div class="desc">标准格式45分钟完整教案</div>
                         </div>
-                        <div class="hint-card" onclick="fill('制作人工智能基础课程期末复习提纲，涵盖机器学习、深度学习、计算机视觉')">
-                            <div class="emoji">🤖</div>
-                            <div class="title">复习提纲</div>
-                            <div class="desc">AI课程知识点总结</div>
+                        <div class="hint-card" onclick="location.href='/module/exercises'" style="cursor:pointer;">
+                            <div class="emoji">📝</div>
+                            <div class="title">习题生成</div>
+                            <div class="desc">分层习题+详细答案解析</div>
                         </div>
-                        <div class="hint-card" onclick="fill('为职业院校传感器技术课程设计STM32温度传感器实训方案，含器材清单和代码框架')">
-                            <div class="emoji">🔧</div>
-                            <div class="title">实训方案</div>
-                            <div class="desc">传感器技术实践指导</div>
+                        <div class="hint-card" onclick="location.href='/module/homework_analysis'" style="cursor:pointer;">
+                            <div class="emoji">📊</div>
+                            <div class="title">作业分析</div>
+                            <div class="desc">作业批改与学情数据分析</div>
                         </div>
-                        <div class="hint-card" onclick="fill('设计幼儿园环保主题班会方案，适合大班，包含游戏和手工制作')">
-                            <div class="emoji">🌱</div>
-                            <div class="title">主题班会</div>
-                            <div class="desc">幼儿园活动策划</div>
+                        <div class="hint-card" onclick="location.href='/module/history'" style="cursor:pointer;">
+                            <div class="emoji">🕒</div>
+                            <div class="title">历史记录</div>
+                            <div class="desc">查看所有AI生成记录与历史会话</div>
                         </div>
                     </div>
                 </div>
@@ -979,6 +1115,78 @@
             return div;
         }
 
+        function renderAttachments() {
+            const box = document.getElementById('attachment-previews');
+            if (!attachedFiles.length) { box.innerHTML = ''; return; }
+            box.innerHTML = attachedFiles.map(f => {
+                const ext = (f.name.split('.').pop() || '').toLowerCase();
+                const icon = f.kind.includes('教案') || f.kind.includes('模板') ? '📋'
+                           : f.kind.includes('作业') || f.kind.includes('成绩') || f.kind.includes('数据') ? '📊'
+                           : ext === 'pdf' ? '📕'
+                           : ext === 'docx' ? '📘'
+                           : ext === 'xlsx' || ext === 'csv' ? '📈'
+                           : '📄';
+                const loading = f.loading ? ' loading' : '';
+                const sub = f.loading
+                    ? (f.error ? escapeHtml(f.error) : `${f.kind || '处理中'} · ${f.chars ? f.chars+'字' : ''}`)
+                    : `${f.kind || '识别中'} · ${(f.chars||0).toLocaleString()} 字`;
+                return `<div class="attached-card${loading}" data-id="${f.id}">
+                    <span class="icon">${icon}</span>
+                    <div class="meta">
+                        <span class="name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
+                        <span class="sub">${sub}</span>
+                    </div>
+                    <button class="close" title="移除" onclick="removeAttachment('${f.id}')">✕</button>
+                </div>`;
+            }).join('');
+        }
+
+        function removeAttachment(id) {
+            attachedFiles = attachedFiles.filter(f => f.id !== id);
+            renderAttachments();
+        }
+
+        async function onPickFile(ev) {
+            const files = Array.from(ev.target.files || []);
+            ev.target.value = '';
+            if (!files.length) return;
+
+            for (const file of files) {
+                const id = 'att_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                const ext = (file.name.split('.').pop() || '').toLowerCase();
+                const entry = {
+                    id, name: file.name, kind: '上传中', chars: 0,
+                    text: '', loading: true, error: '',
+                };
+                attachedFiles.push(entry);
+                renderAttachments();
+
+                try {
+                    const fd = new FormData();
+                    fd.append('file', file);
+                    const r = await fetch('/api/upload', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        body: fd,
+                    });
+                    const data = await r.json();
+                    if (!r.ok || !data.ok) {
+                        throw new Error(data.error || `HTTP ${r.status}`);
+                    }
+                    entry.kind = data.kind;
+                    entry.chars = data.chars;
+                    entry.text = data.full_text;
+                    entry.loading = false;
+                    renderAttachments();
+                } catch (err) {
+                    entry.loading = false;
+                    entry.error = '❌ 上传失败：' + (err.message || String(err));
+                    renderAttachments();
+                    setTimeout(() => removeAttachment(id), 4000);
+                }
+            }
+        }
+
         function renderThinkingBox(thinkingContent) {
             if (!thinkingContent) return '';
             const phases = parseThinkingContent(thinkingContent);
@@ -1013,20 +1221,25 @@
             }
             hideWelcome();
             chat.innerHTML = s.messages.map((m, i) => {
-                const fileBadges = m.files ? `<div class="msg-meta">${m.files.map(f => `<span class="file-badge">📄 <a href="/api/download/${f}" download>${f}</a></span>`).join(' ')}</div>` : '';
+                const fileBadges = m.files ? `<div class="msg-meta">${m.files.map(f => `<span class="file-badge" style="cursor:pointer" data-download-url="/api/download/${encodeURIComponent(f)}" data-filename="${escapeHtml(f)}">📄 ${escapeHtml(f)}</span>`).join(' ')}</div>` : '';
+                const pptBadges = m.ppts && m.ppts.length ? `<div class="msg-meta">${m.ppts.map(f => `<span class="ppt-badge" style="cursor:pointer" data-download-url="/api/download/${encodeURIComponent(f)}" data-filename="${escapeHtml(f)}">📊 ${escapeHtml(f)}</span>`).join(' ')}</div>` : '';
 
                 const thinkingBox = m.role === 'ai' && m.thinking ? renderThinkingBox(m.thinking) : '';
 
-                const wordButton = m.role === 'ai' && m.content ?
+                const isError = m.role === 'ai' && typeof m.content === 'string' && m.content.startsWith('❌');
+                const wordButton = m.role === 'ai' && m.content && !isError ?
                     `<div class="msg-actions">
                         <button class="word-btn" onclick="exportToWord(${i})" title="点击下载 Word 文档">
                             ⬇ 下载 Word 文档
+                        </button>
+                        <button class="ppt-btn" onclick="exportToPpt(${i})" title="点击下载 PPT 课件">
+                            📊 下载 PPT 课件
                         </button>
                     </div>` : '';
 
                 return `<div class="msg ${m.role}">
                     <div class="msg-avatar">${m.role === 'user' ? '👤' : '🤖'}</div>
-                    <div class="msg-bubble">${marked.parse(m.content)}${thinkingBox}${fileBadges}${wordButton}</div>
+                    <div class="msg-bubble">${marked.parse(m.content)}${thinkingBox}${fileBadges}${pptBadges}${wordButton}</div>
                 </div>`;
             }).join('');
             chat.scrollTop = chat.scrollHeight;
@@ -1154,10 +1367,31 @@
         async function send() {
             const input = document.getElementById('input');
             const text = input.value.trim();
-            if (!text) return;
+            if (!text && !attachedFiles.length) return;
 
-            addMsg('user', text);
+            const userFilesSnapshot = attachedFiles.map(f => ({
+                name: f.name, kind: f.kind, text: f.text, chars: f.chars,
+            }));
+
+            let showText = text;
+            if (attachedFiles.length) {
+                const lines = attachedFiles.map(f => {
+                    const ext = (f.name.split('.').pop() || '').toLowerCase();
+                    const icon = f.kind.includes('教案') || f.kind.includes('模板') ? '📋'
+                               : f.kind.includes('作业') || f.kind.includes('成绩') || f.kind.includes('数据') ? '📊'
+                               : ext === 'pdf' ? '📕'
+                               : ext === 'docx' ? '📘'
+                               : ext === 'xlsx' || ext === 'csv' ? '📈'
+                               : '📄';
+                    return `${icon} **上传：${f.name}**（${f.kind} · ${(f.chars||0).toLocaleString()} 字）`;
+                });
+                showText = [text, ...lines].filter(Boolean).join('\n\n');
+            }
+
+            addMsg('user', showText);
             input.value = '';
+            attachedFiles = [];
+            renderAttachments();
             document.getElementById('send-btn').disabled = true;
 
             const s = sessions[activeSession];
@@ -1186,7 +1420,12 @@
                 const res = await fetch('/api/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: activeSession, message: text }),
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        session_id: activeSession,
+                        message: text,
+                        attachments: userFilesSnapshot,
+                    }),
                 });
 
                 const reader = res.body.getReader();
@@ -1234,7 +1473,9 @@
                                 s.messages.push({
                                     role: 'ai',
                                     content: data.content,
+                                    rawContent: data.raw_content || data.content,
                                     files: data.saved_files,
+                                    ppts: data.saved_ppts,
                                     thinking: thinkingContent,
                                     time: new Date()
                                 });
@@ -1243,9 +1484,18 @@
                                     const meta = document.createElement('div');
                                     meta.className = 'msg-meta';
                                     meta.innerHTML = data.saved_files.map(f =>
-                                        `<span class="file-badge">📄 <a href="/api/download/${f}" download>${f}</a></span>`
+                                        `<span class="file-badge" style="cursor:pointer" data-download-url="/api/download/${encodeURIComponent(f)}" data-filename="${escapeHtml(f)}">📄 ${escapeHtml(f)}</span>`
                                     ).join(' ');
                                     aiMsgDiv.querySelector('.msg-bubble').appendChild(meta);
+                                }
+
+                                if (data.saved_ppts && data.saved_ppts.length > 0) {
+                                    const pptMeta = document.createElement('div');
+                                    pptMeta.className = 'msg-meta';
+                                    pptMeta.innerHTML = data.saved_ppts.map(f =>
+                                        `<span class="ppt-badge" style="cursor:pointer" data-download-url="/api/download/${encodeURIComponent(f)}" data-filename="${escapeHtml(f)}">📊 ${escapeHtml(f)}</span>`
+                                    ).join(' ');
+                                    aiMsgDiv.querySelector('.msg-bubble').appendChild(pptMeta);
                                 }
 
                                 const actionsDiv = document.createElement('div');
@@ -1253,6 +1503,9 @@
                                 actionsDiv.innerHTML = `
                                     <button class="word-btn" onclick="exportToWord(${msgIdx})" title="点击下载 Word 文档">
                                         ⬇ 下载 Word 文档
+                                    </button>
+                                    <button class="ppt-btn" onclick="exportToPpt(${msgIdx})" title="点击下载 PPT 课件">
+                                        📊 下载 PPT 课件
                                     </button>`;
                                 aiMsgDiv.querySelector('.msg-bubble').appendChild(actionsDiv);
 
@@ -1279,7 +1532,7 @@
 
         async function clearChat() {
             await fetch('/api/clear', {
-                method: 'POST',
+                method: 'POST', credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ session_id: activeSession }),
             });
@@ -1291,55 +1544,210 @@
             document.getElementById('token-badge').style.display = 'none';
         }
 
+        function triggerBlobDownload(blob, filename) {
+            const safeName = filename || 'download';
+            try {
+                const a = document.createElement('a');
+                const useFile = typeof File !== 'undefined';
+                const blobOrFile = useFile ? new File([blob], safeName, { type: blob.type || 'application/octet-stream' }) : blob;
+                const blobUrl = window.URL.createObjectURL(blobOrFile);
+                a.href = blobUrl;
+                try { a.download = safeName; } catch(_) { a.setAttribute('download', safeName); }
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(blobUrl);
+                }, 300);
+            } catch (e) {
+                console.error('触发下载失败:', e);
+                alert('下载失败: ' + (e && e.message ? e.message : e));
+            }
+        }
+
+        // ====== 全局委托：点击 file-badge / ppt-badge 上的 data-download-url 下载（避免内联字符串注入） ======
+        document.addEventListener('click', function(e) {
+            const tgt = e.target;
+            if (!tgt || !tgt.getAttribute) return;
+            const url = tgt.getAttribute('data-download-url');
+            if (!url) return;
+            const filename = tgt.getAttribute('data-filename') || url.split('/').pop() || 'download';
+            e.preventDefault();
+            e.stopPropagation();
+            downloadFile(url, filename);
+        });
+
+
+        async function downloadFile(url, filename) {
+            try {
+                const response = await fetch(url, { credentials: 'same-origin' });
+                if (!response.ok) {
+                    throw new Error('文件下载失败 (' + response.status + ')');
+                }
+                const blob = await response.blob();
+                triggerBlobDownload(blob, filename);
+                return true;
+            } catch (e) {
+                console.error('下载失败:', e);
+                alert('下载失败: ' + e.message);
+                return false;
+            }
+        }
+
+        async function exportBlob(url, body, btn, errorLabel) {
+            if (!btn) return false;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '⏳ 生成中...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(body),
+                });
+
+                if (!response.ok) {
+                    let msg = errorLabel + '失败';
+                    try {
+                        const errData = await response.json();
+                        msg = errData.error || msg;
+                    } catch (_) {}
+                    throw new Error(msg);
+                }
+
+                const blob = await response.blob();
+                let filename = '';
+                    const encFn = response.headers.get('X-Filename-Encoded');
+                    if (encFn) { try { filename = decodeURIComponent(encFn); } catch(_) {} }
+                    if (!filename) {
+                        const hdrFn = response.headers.get('X-Filename');
+                        if (hdrFn) filename = hdrFn;
+                        else if (url.indexOf('ppt') !== -1) filename = (body.title || '课件') + '.pptx';
+                        else filename = (body.title || '教案') + '.docx';
+                    }
+                triggerBlobDownload(blob, filename);
+
+                btn.innerHTML = '✓ 已下载';
+                btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.style.background = '';
+                    btn.disabled = false;
+                }, 2000);
+                return true;
+            } catch (error) {
+                alert(`${errorLabel}失败: ${error.message}`);
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+                return false;
+            }
+        }
+
         async function exportToWord(messageIndex) {
             const s = sessions[activeSession];
             if (!s || !s.messages[messageIndex]) {
                 alert('消息不存在');
                 return;
             }
-
             const message = s.messages[messageIndex];
-            const content = message.content;
-            const title = s.title || '教案';
-
-            try {
-                const response = await fetch('/api/export/word', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        content: content,
-                        title: title
-                    }),
-                });
-
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || '导出失败');
-                }
-
-                const data = await response.json();
-                const downloadUrl = window.location.origin + data.download_url;
-                
-                window.open(downloadUrl, '_blank');
-
-                const downloadBtn = document.querySelector(`button[onclick="exportToWord(${messageIndex})"]`);
-                if (downloadBtn) {
-                    const originalText = downloadBtn.innerHTML;
-                    downloadBtn.innerHTML = '✓ 已在浏览器打开';
-                    downloadBtn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                    setTimeout(() => {
-                        downloadBtn.innerHTML = originalText;
-                        downloadBtn.style.background = '';
-                    }, 2000);
-                }
-
-            } catch (error) {
-                alert(`导出 Word 失败: ${error.message}`);
+            console.log('[DEBUG] exportToWord - content length:', message.content ? message.content.length : 0);
+            if (!message.content || message.content.trim() === '') {
+                alert('该消息内容为空，无法导出 Word。请发送新消息后再试。');
+                return;
             }
+            const btn = document.querySelector(`button[onclick="exportToWord(${messageIndex})"]`);
+            await exportBlob('/api/export/word', {
+                content: message.content,
+                title: s.title || '教案'
+            }, btn, '导出 Word');
+        }
+
+        async function exportToPpt(messageIndex) {
+            const s = sessions[activeSession];
+            if (!s || !s.messages[messageIndex]) {
+                alert('消息不存在');
+                return;
+            }
+            const message = s.messages[messageIndex];
+            console.log('[DEBUG] exportToPpt - rawContent exists:', !!message.rawContent);
+            console.log('[DEBUG] exportToPpt - rawContent length:', message.rawContent ? message.rawContent.length : 0);
+            console.log('[DEBUG] exportToPpt - content length:', message.content ? message.content.length : 0);
+            const content = message.rawContent || message.content;
+            if (!content || content.trim() === '') {
+                alert('该消息内容为空，无法导出 PPT。请发送新消息后再试。');
+                return;
+            }
+            const btn = document.querySelector(`button[onclick="exportToPpt(${messageIndex})"]`);
+            await exportBlob('/api/export/ppt', {
+                content: content,
+                title: s.title || '课件'
+            }, btn, '导出 PPT');
         }
 
         loadSessions();
         document.getElementById('input').focus();
+
+        (function handleModuleRedirect() {
+            const params = new URLSearchParams(window.location.search);
+            const sessionId = params.get('session');
+            const autoSend = params.get('autoSend') === '1';
+            let pendingMsg = null;
+            let pendingAtts = null;
+
+            if (sessionId) {
+                pendingMsg = sessionStorage.getItem('pendingMessage_' + sessionId);
+                if (pendingMsg) {
+                    sessionStorage.removeItem('pendingMessage_' + sessionId);
+                }
+                try {
+                    const attsRaw = sessionStorage.getItem('pendingAttachments_' + sessionId);
+                    if (attsRaw) {
+                        pendingAtts = JSON.parse(attsRaw);
+                        sessionStorage.removeItem('pendingAttachments_' + sessionId);
+                    }
+                } catch (e) { console.warn('解析 pendingAttachments 失败:', e); }
+            }
+
+            if (!pendingMsg && !pendingAtts) return;
+            pendingMsg = pendingMsg || '';
+
+            const checkAndSend = () => {
+                if (!sessions || Object.keys(sessions).length === 0) {
+                    setTimeout(checkAndSend, 200);
+                    return;
+                }
+                let targetId = sessionId;
+                if (!sessions[targetId]) {
+                    const titleSeed = (pendingMsg || (pendingAtts && pendingAtts[0] && pendingAtts[0].name) || '新对话');
+                    const id = Date.now().toString(36);
+                    sessions[id] = { title: titleSeed.substring(0, 30) + (titleSeed.length > 30 ? '...' : ''), messages: [], createdAt: new Date() };
+                    targetId = id;
+                }
+                activeSession = targetId;
+                renderSessionList();
+                updateTopbar();
+
+                if (pendingAtts && pendingAtts.length) {
+                    attachedFiles = pendingAtts.map(f => ({
+                        id: 'att_import_' + Date.now().toString(36) + Math.random().toString(36).slice(2,5),
+                        name: f.name, kind: f.kind || '资料', text: f.text, chars: f.chars || 0,
+                        loading: false, error: '',
+                    }));
+                    renderAttachments();
+                }
+                document.getElementById('input').value = pendingMsg;
+                if (autoSend) {
+                    setTimeout(() => send(), 300);
+                } else {
+                    document.getElementById('input').focus();
+                }
+            };
+            setTimeout(checkAndSend, 100);
+        })();
     </script>
 </body>
 </html>

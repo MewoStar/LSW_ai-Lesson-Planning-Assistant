@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ module.name }} · Σ</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#faf8f3;
+  --ink:#1a1a1a;
+  --muted:#8a8a82;
+  --line:#e6e2d6;
+  --accent:#d97706;
+  --accent-soft:#fff7ed;
+  --soft:#f5f1e7;
+}
+body{
+  font-family:'Noto Serif SC','Cormorant Garamond',serif;
+  background:var(--bg);
+  color:var(--ink);
+  min-height:100vh;
+  position:relative;
+  overflow-x:hidden;
+}
+/* 几何装饰元素 */
+.deco{position:fixed;z-index:0;pointer-events:none;opacity:.5}
+.deco.d1{top:120px;right:60px;width:160px;height:160px;border:1.5px solid var(--accent);transform:rotate(15deg);opacity:.2}
+.deco.d2{top:340px;right:140px;width:80px;height:80px;background:var(--accent);clip-path:polygon(50% 0,100% 100%,0 100%);opacity:.12}
+.deco.d3{bottom:100px;left:280px;width:120px;height:120px;border-radius:50%;border:2px solid var(--line);opacity:.6}
+.deco.d4{bottom:220px;left:360px;width:60px;height:60px;background:var(--accent);opacity:.1;border-radius:50%}
+.deco.d5{top:50%;left:40px;width:1px;height:300px;background:linear-gradient(var(--line),transparent)}
+.deco.d6{top:60%;right:80px;width:100px;height:100px;opacity:.15}
+.deco.d6::before,.deco.d6::after{content:'';position:absolute;border:1.5px solid var(--accent)}
+.deco.d6::before{top:0;left:0;width:100%;height:100%;transform:rotate(45deg)}
+.deco.d6::after{top:10px;left:10px;width:calc(100% - 20px);height:calc(100% - 20px)}
+
+/* 左侧优雅导航 */
+.side{
+  position:fixed;left:0;top:0;
+  width:80px;min-height:100vh;
+  background:var(--soft);
+  border-right:1px solid var(--line);
+  z-index:20;
+  display:flex;flex-direction:column;align-items:center;
+  padding:28px 0 20px;
+}
+.logo{
+  width:44px;height:44px;
+  background:var(--ink);
+  color:var(--bg);
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Cormorant Garamond',serif;
+  font-weight:700;font-size:22px;
+  border-radius:50%;
+  cursor:pointer;
+  transition:transform .3s;
+}
+.logo:hover{transform:rotate(-10deg) scale(1.05)}
+.side-nav{
+  margin-top:36px;
+  display:flex;flex-direction:column;gap:8px;
+  flex:1;
+}
+.nav-dot{
+  width:40px;height:40px;
+  border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  color:var(--muted);
+  font-size:18px;
+  transition:all .3s;
+  position:relative;
+}
+.nav-dot:hover{background:var(--bg);color:var(--ink);transform:scale(1.08)}
+.nav-dot.active{background:var(--accent-soft);color:var(--accent)}
+.nav-dot.active::after{
+  content:'';position:absolute;right:-19px;
+  width:3px;height:20px;background:var(--accent);border-radius:2px;
+}
+.user-ico{
+  width:38px;height:38px;
+  border-radius:50%;
+  border:1px solid var(--line);
+  background:var(--bg);
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;
+  cursor:pointer;
+}
+
+/* 内容主体 */
+.wrap{
+  margin-left:80px;
+  position:relative;z-index:5;
+  max-width:1180px;
+  padding:40px 56px 60px;
+}
+/* 顶部条 */
+.top{
+  display:flex;justify-content:space-between;align-items:center;
+  padding-bottom:20px;margin-bottom:40px;
+  border-bottom:1px solid var(--line);
+}
+.crumbs{font-size:13px;color:var(--muted);letter-spacing:.5px}
+.crumbs a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--muted)}
+.crumbs .sep{margin:0 10px;color:var(--line)}
+.crumbs .cur{color:var(--accent);font-weight:600}
+.top-rt{display:flex;align-items:center;gap:18px;font-size:12px;color:var(--muted)}
+.top-rt .badge{
+  padding:4px 12px;
+  background:var(--accent-soft);
+  color:var(--accent);
+  border-radius:20px;
+  font-weight:600;letter-spacing:.5px;
+  font-size:11px;
+}
+
+/* Hero */
+.hero{padding:16px 0 40px;position:relative}
+.hero .num{
+  font-family:'Cormorant Garamond',serif;
+  font-size:140px;
+  font-weight:700;
+  line-height:1;
+  position:absolute;
+  top:-40px;right:20px;
+  color:var(--soft);
+  letter-spacing:-8px;
+  z-index:0;
+  user-select:none;
+}
+.hero .chapter{
+  font-size:12px;letter-spacing:4px;color:var(--muted);
+  text-transform:uppercase;margin-bottom:14px;
+  display:flex;align-items:center;gap:14px;
+}
+.hero .chapter::before{
+  content:'';width:40px;height:1px;background:var(--accent);
+}
+.hero h1{
+  font-size:56px;font-weight:700;line-height:1.1;
+  letter-spacing:2px;
+  display:flex;align-items:center;gap:20px;
+  position:relative;z-index:1;
+}
+.hero h1 .ico{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:72px;height:72px;
+  background:var(--accent-soft);
+  color:var(--accent);
+  border-radius:20px;
+  font-size:40px;
+  transform:rotate(-6deg);
+}
+.hero .sub{
+  margin-top:22px;
+  font-size:15px;line-height:2;
+  color:#444;
+  max-width:680px;
+  padding-left:18px;
+  border-left:2px solid var(--accent);
+}
+.hero .meta{
+  margin-top:26px;
+  display:flex;gap:24px;align-items:center;flex-wrap:wrap;
+}
+.meta .pill{
+  padding:8px 16px;
+  border:1px solid var(--line);
+  border-radius:2px;
+  font-size:12px;
+  color:#555;
+  letter-spacing:.5px;
+  background:var(--bg);
+}
+.meta .pill.hot{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.actions{
+  margin-top:30px;display:flex;gap:14px;
+}
+.btn{
+  padding:14px 30px;
+  font-family:inherit;
+  font-size:13px;
+  font-weight:600;
+  letter-spacing:1.5px;
+  cursor:pointer;
+  border-radius:2px;
+  transition:all .25s;
+  border:none;
+}
+.btn.primary{
+  background:var(--ink);
+  color:var(--bg);
+}
+.btn.primary:hover{
+  background:var(--accent);
+  transform:translateY(-2px);
+  box-shadow:0 8px 20px rgba(217,119,6,.2);
+}
+.btn.ghost{
+  background:transparent;
+  color:var(--ink);
+  border:1px solid var(--ink);
+}
+.btn.ghost:hover{background:var(--ink);color:var(--bg)}
+
+/* 输入区：极简笔记本风格 */
+.work-area{
+  margin:36px 0;
+  padding:32px 36px;
+  background:#fff;
+  border:1px solid var(--line);
+  box-shadow:0 2px 20px rgba(0,0,0,.03);
+  position:relative;
+}
+.work-area::before{
+  content:'';
+  position:absolute;left:58px;top:0;bottom:0;
+  width:1px;background:#fde68a;opacity:.5;
+}
+.work-label{
+  font-size:11px;letter-spacing:3px;color:var(--muted);
+  margin-bottom:14px;text-transform:uppercase;
+  display:flex;align-items:center;gap:10px;
+}
+.work-label::after{content:'';flex:1;height:1px;background:var(--line)}
+.work-area textarea{
+  width:100%;min-height:110px;
+  background:transparent;
+  border:none;outline:none;resize:vertical;
+  font-family:inherit;
+  font-size:15px;line-height:2;
+  padding-left:38px;
+  color:var(--ink);
+}
+.work-area textarea::placeholder{color:#bbb}
+.work-actions{
+  margin-top:18px;
+  padding-top:18px;
+  border-top:1px dashed var(--line);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.work-actions .hint{font-size:12px;color:var(--muted)}
+.work-btns{display:flex;gap:10px}
+.mini-btn{
+  padding:8px 16px;
+  font-family:inherit;
+  font-size:12px;
+  cursor:pointer;
+  border:none;
+  border-radius:2px;
+  transition:all .2s;
+}
+.mini-btn.run{background:var(--accent);color:#fff;font-weight:600;letter-spacing:1px}
+.mini-btn.run:hover{background:var(--ink)}
+.mini-btn.reset{background:transparent;color:var(--muted);border:1px solid var(--line)}
+.mini-btn.reset:hover{color:var(--ink);border-color:var(--muted)}
+
+/* 内容双栏 */
+.grid2{
+  display:grid;grid-template-columns:1.6fr 1fr;
+  gap:36px;margin-top:44px;
+}
+.card{
+  background:#fff;border:1px solid var(--line);
+  padding:28px;position:relative;
+  transition:transform .25s;
+}
+.card:hover{transform:translateY(-3px);box-shadow:0 8px 28px rgba(0,0,0,.05)}
+.card-title{
+  font-size:14px;font-weight:700;letter-spacing:2px;
+  margin-bottom:20px;padding-bottom:14px;
+  border-bottom:1px solid var(--line);
+  display:flex;align-items:baseline;gap:10px;
+}
+.card-title .en{
+  font-family:'Cormorant Garamond',serif;
+  font-size:13px;color:var(--muted);font-style:italic;font-weight:400;
+  letter-spacing:1px;
+}
+
+/* 功能清单 */
+.f-list{display:flex;flex-direction:column;gap:4px}
+.f-item{
+  padding:14px 10px 14px 36px;
+  font-size:14px;color:#333;line-height:1.5;
+  border-bottom:1px dashed var(--line);
+  position:relative;
+}
+.f-item:last-child{border-bottom:none}
+.f-item::before{
+  content:'';
+  position:absolute;left:8px;top:20px;
+  width:14px;height:14px;
+  border:1.5px solid var(--accent);
+  background:var(--accent-soft);
+  transform:rotate(45deg);
+}
+.f-item::after{
+  content:'';
+  position:absolute;left:12px;top:24px;
+  width:6px;height:6px;
+  background:var(--accent);
+  transform:rotate(45deg);
+}
+
+/* 示例卡 */
+.tpl-list{display:flex;flex-direction:column;gap:16px}
+.tpl{
+  padding:18px 20px;
+  background:var(--soft);
+  border-left:3px solid var(--accent);
+  cursor:pointer;
+  transition:all .25s;
+  position:relative;
+}
+.tpl:hover{
+  background:var(--accent-soft);
+  padding-left:24px;
+}
+.tpl-h{
+  display:flex;align-items:center;gap:10px;margin-bottom:6px;
+}
+.tpl-h .ic{font-size:20px}
+.tpl-h .t{font-size:15px;font-weight:700}
+.tpl-d{font-size:13px;color:#555;line-height:1.7;margin-left:30px}
+.tpl-go{
+  margin-top:10px;margin-left:30px;
+  font-size:12px;color:var(--accent);font-weight:600;
+  display:flex;align-items:center;gap:6px;
+}
+.tpl-go .arr{transition:transform .2s}
+.tpl:hover .tpl-go .arr{transform:translateX(4px)}
+
+/* 右栏 */
+.info-box{margin-bottom:28px}
+.box-h{
+  font-size:11px;letter-spacing:3px;color:var(--muted);
+  text-transform:uppercase;margin-bottom:14px;
+  padding-bottom:8px;border-bottom:1px solid var(--line);
+}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{
+  padding:8px 14px;
+  background:var(--soft);
+  font-size:12px;
+  color:#555;
+  border-radius:2px;
+  transition:all .2s;
+  cursor:default;
+}
+.chip:hover{background:var(--accent-soft);color:var(--accent)}
+.chip.prime{background:var(--accent);color:#fff}
+
+/* 底部模块切换 */
+.mod-foot{
+  margin-top:60px;
+  padding:28px 32px;
+  background:var(--soft);
+  border:1px solid var(--line);
+}
+.mod-foot h4{
+  font-size:11px;letter-spacing:3px;color:var(--muted);
+  text-transform:uppercase;margin-bottom:18px;
+  display:flex;align-items:center;gap:14px;
+}
+.mod-foot h4::after{content:'';flex:1;height:1px;background:var(--line)}
+.mod-grid{
+  display:grid;grid-template-columns:repeat(6,1fr);gap:12px;
+}
+.mod-card{
+  padding:20px 12px;
+  background:#fff;
+  border:1px solid var(--line);
+  text-align:center;
+  cursor:pointer;
+  color:var(--ink);
+  text-decoration:none;
+  transition:all .3s;
+  position:relative;
+}
+.mod-card:hover{
+  transform:translateY(-4px) rotate(-1deg);
+  border-color:var(--accent);
+  box-shadow:0 8px 20px rgba(217,119,6,.12);
+}
+.mod-card.on{
+  background:var(--ink);
+  color:var(--bg);
+  border-color:var(--ink);
+}
+.mod-card .em{font-size:24px;display:block;margin-bottom:8px}
+.mod-card .nm{font-size:12px;font-weight:600;letter-spacing:.5px}
+
+@media(max-width:960px){
+  .side{display:none}
+  .wrap{margin-left:0;padding:24px}
+  .grid2{grid-template-columns:1fr}
+  .hero h1{font-size:38px}
+  .hero .num{display:none}
+  .mod-grid{grid-template-columns:repeat(3,1fr)}
+}
+</style>
+</head>
+<body>
+<!-- 几何装饰 -->
+<div class="deco d1"></div>
+<div class="deco d2"></div>
+<div class="deco d3"></div>
+<div class="deco d4"></div>
+<div class="deco d5"></div>
+<div class="deco d6"></div>
+
+<!-- 左侧导航 -->
+<nav class="side">
+  <div class="logo" onclick="location.href='/'">Σ</div>
+  <div class="side-nav">
+    <div class="nav-dot" title="首页" onclick="location.href='/'">⌂</div>
+    <div class="nav-dot active" title="数学习题">∑</div>
+    <div class="nav-dot" title="物理教案" onclick="location.href='/module/physics'">⚛</div>
+    <div class="nav-dot" title="教学代码" onclick="location.href='/module/code'">{ }</div>
+    <div class="nav-dot" title="复习提纲" onclick="location.href='/module/ai_review'">Ψ</div>
+    <div class="nav-dot" title="实训方案" onclick="location.href='/module/training'">⚙</div>
+    <div class="nav-dot" title="主题班会" onclick="location.href='/module/kindergarten'">✿</div>
+  </div>
+  <div class="user-ico" title="{{ username }}">👤</div>
+</nav>
+
+<!-- 内容主体 -->
+<div class="wrap">
+  <!-- 顶部 -->
+  <div class="top">
+    <div class="crumbs">
+      <a href="/">主控台</a>
+      <span class="sep">/</span>
+      <span>题库中心</span>
+      <span class="sep">/</span>
+      <span class="cur">{{ module.name }}</span>
+    </div>
+    <div class="top-rt">
+      <span class="badge">◆ PRO</span>
+      <span>MODEL · {{ model }}</span>
+      <a href="/logout" style="color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--muted)">登出</a>
+    </div>
+  </div>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="num">02</div>
+    <div class="chapter">Chapter II · Exercise Library</div>
+    <h1><span class="ico">📐</span>{{ module.name }}</h1>
+    <p class="sub">{{ module.description }}</p>
+    <div class="meta">
+      {% for lv in module.grade_levels %}
+      <span class="pill{% if loop.index==1 %} hot{% endif %}">◆ {{ lv }}</span>
+      {% endfor %}
+      <span class="pill">✎ 自动解析</span>
+      <span class="pill">⚖ 难度分层</span>
+    </div>
+    <div class="actions">
+      <button class="btn primary" onclick="useDefault()">◈ 立即生成习题</button>
+      <button class="btn ghost" onclick="document.getElementById('note').focus()">✎ 自定义题目</button>
+    </div>
+  </section>
+
+  <!-- 工作区 -->
+  <section class="work-area">
+    <div class="work-label">◈ Problem Description · 习题需求描述</div>
+    <textarea id="note" placeholder="请输入：知识点、年级、题目数量、难度要求、是否需要答案解析等...">{{ module.default_prompt }}</textarea>
+    <div class="work-actions">
+      <span class="hint">※ 需求描述越具体，生成的题目越精准。支持用自然语言描述。</span>
+      <div class="work-btns">
+        <button class="mini-btn reset" onclick="document.getElementById('note').value=`{{ module.default_prompt }}`">↺ 重置</button>
+        <button class="mini-btn run" onclick="generate()">▶ 开始生成</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 双栏内容 -->
+  <section class="grid2">
+    <div>
+      <div class="card" style="margin-bottom:28px">
+        <div class="card-title">功能说明 <span class="en">Features &amp; Abilities</span></div>
+        <div class="f-list">
+          {% for f in module.features %}
+          <div class="f-item">{{ f }}</div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">精选模板 <span class="en">Curated Templates</span></div>
+        <div class="tpl-list">
+          {% for ex in module.examples %}
+          <div class="tpl" onclick="useExample(`{{ ex.prompt | e }}`)">
+            <div class="tpl-h"><span class="ic">📝</span><span class="t">{{ ex.title }}</span></div>
+            <div class="tpl-d">{{ ex.desc }}</div>
+            <div class="tpl-go">→ 使用此模板 <span class="arr">⟶</span></div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="info-box card">
+        <div class="box-h">◆ 适配学段</div>
+        <div class="chips">
+          {% for lv in module.grade_levels %}
+            <span class="chip{% if loop.index==1 %} prime{% endif %}">{{ lv }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="info-box card">
+        <div class="box-h">◆ 知识领域</div>
+        <div class="chips">
+          {% for kp in module.knowledge_points %}
+            <span class="chip">{{ kp }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 模块切换 -->
+  <section class="mod-foot">
+    <h4>◈ Explore More · 浏览其他备课模块</h4>
+    <div class="mod-grid">
+      {% for m in all_modules %}
+      <a href="/module/{{ m.id }}" class="mod-card {% if m.id==module_id %}on{% endif %}">
+        <span class="em">{{ m.emoji }}</span>
+        <span class="nm">{{ m.name }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+<script>
+function useDefault(){generate()}
+function useExample(p){
+  document.getElementById('note').value=p;
+  setTimeout(generate,300);
+}
+async function generate(){
+  const text=document.getElementById('note').value.trim();
+  if(!text){alert('请输入习题需求');return}
+  const id=Date.now().toString(36);
+  sessionStorage.setItem('pendingMessage_'+id,text);
+  window.location.href='/?session='+id+'&autoSend=1';
+}
+</script>
+</body>
+</html>

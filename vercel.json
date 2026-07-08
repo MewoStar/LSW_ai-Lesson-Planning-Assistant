@@ -1,0 +1,41 @@
+{
+  "builds": [
+    {
+      "src": "api/*.py",
+      "use": "@vercel/python@3.0.11",
+      "config": {
+        "maxLambdaSize": "50mb",
+        "runtime": "python3.12"
+      }
+    },
+    {
+      "src": "static/**/*",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1.py"
+    },
+    {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/static/index.html"
+    }
+  ],
+  "functions": {
+    "api/*.py": {
+      "memory": 256,
+      "maxDuration": 30,
+      "regions": ["hkg1", "sin1"]
+    }
+  },
+  "env": {
+    "PYTHONPATH": "/var/task:/opt/python"
+  },
+  "installCommand": "pip install -r requirements.txt --quiet"
+}

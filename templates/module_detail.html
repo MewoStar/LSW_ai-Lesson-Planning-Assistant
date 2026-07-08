@@ -1,0 +1,1305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ module.name }} · 备课助手</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #f8f9fa;
+            --sidebar-bg: #1e1e2e;
+            --sidebar-text: #cdd6f4;
+            --sidebar-hover: #313244;
+            --sidebar-active: #45475a;
+            --card-bg: #ffffff;
+            --text: #1e1e2e;
+            --text-secondary: #6c7086;
+            --border: #e0e3e8;
+            --accent: #7c3aed;
+            --accent-light: #ede9fe;
+            --user-bg: #f3f0ff;
+            --ai-bg: #ffffff;
+            --code-bg: #1e1e2e;
+            --code-text: #cdd6f4;
+            --success: #10b981;
+            --radius: 12px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+        }
+
+        /* ====== 侧边栏 ====== */
+        .sidebar {
+            width: 260px;
+            background: var(--sidebar-bg);
+            color: var(--sidebar-text);
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid rgba(255,255,255,0.05);
+            flex-shrink: 0;
+            min-height: 100vh;
+        }
+        .sidebar-header {
+            padding: 20px 18px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            cursor: pointer;
+        }
+        .sidebar-header:hover { background: rgba(255,255,255,0.02); }
+        .sidebar-header h2 {
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #fff;
+        }
+        .sidebar-header p {
+            font-size: 11px;
+            color: #a6adc8;
+            margin-top: 4px;
+        }
+        .sidebar-sessions {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px 12px;
+        }
+        .back-btn {
+            margin: 12px;
+            padding: 12px 14px;
+            border: 1px solid rgba(124,58,237,0.4);
+            border-radius: 10px;
+            background: rgba(124,58,237,0.1);
+            color: #c4b5fd;
+            text-align: center;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .back-btn:hover {
+            background: rgba(124,58,237,0.2);
+            border-color: var(--accent);
+            color: #fff;
+            transform: translateY(-1px);
+        }
+        .sidebar-footer {
+            padding: 12px 18px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            font-size: 12px;
+            color: #585b70;
+        }
+        .sidebar-footer .model-name { color: #a6adc8; }
+
+        /* ====== 主区域 ====== */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            overflow-y: auto;
+        }
+
+        /* 顶栏 */
+        .topbar {
+            padding: 16px 32px;
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: var(--shadow);
+        }
+        .topbar-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .breadcrumb a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .breadcrumb a:hover { text-decoration: underline; }
+        .breadcrumb .sep { color: #cbd5e1; }
+        .breadcrumb .current {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .user-avatar {
+            width: 32px; height: 32px;
+            background: var(--accent-light);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px;
+        }
+        .user-name { font-size: 13px; color: var(--text-secondary); }
+        .logout-btn {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.15s;
+        }
+        .logout-btn:hover { background: #fee2e2; color: #dc2626; }
+
+        /* 内容区 */
+        .content {
+            flex: 1;
+            padding: 32px;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* 模块头部 Hero */
+        .module-hero {
+            background: linear-gradient(135deg, #7c3aed 0%, #a855f7 50%, #ec4899 100%);
+            border-radius: 20px;
+            padding: 40px;
+            color: white;
+            margin-bottom: 28px;
+            box-shadow: 0 8px 24px rgba(124,58,237,0.25);
+            position: relative;
+            overflow: hidden;
+        }
+        .module-hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 400px;
+            height: 400px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 50%;
+        }
+        .module-hero::after {
+            content: '';
+            position: absolute;
+            bottom: -30%;
+            right: 10%;
+            width: 200px;
+            height: 200px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 50%;
+        }
+        .hero-inner {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 24px;
+        }
+        .hero-left { flex: 1; }
+        .hero-icon {
+            font-size: 56px;
+            margin-bottom: 16px;
+            filter: drop-shadow(0 4px 12px rgba(0,0,0,0.15));
+        }
+        .hero-title {
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            line-height: 1.2;
+        }
+        .hero-subtitle {
+            font-size: 15px;
+            opacity: 0.9;
+            margin-bottom: 16px;
+            line-height: 1.6;
+            max-width: 600px;
+        }
+        .hero-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .hero-tag {
+            padding: 5px 12px;
+            background: rgba(255,255,255,0.18);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .hero-right {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .hero-btn {
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        .hero-btn.primary {
+            background: white;
+            color: var(--accent);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .hero-btn.primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+        }
+        .hero-btn.secondary {
+            background: rgba(255,255,255,0.15);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.3);
+            backdrop-filter: blur(10px);
+        }
+        .hero-btn.secondary:hover {
+            background: rgba(255,255,255,0.25);
+        }
+
+        /* 网格布局 */
+        .grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 900px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+
+        .section-card {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+        }
+        .section-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .section-title .icon { font-size: 18px; }
+
+        /* 功能特点列表 */
+        .features-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .feature-item {
+            padding: 12px 14px;
+            background: #fafafa;
+            border-radius: 10px;
+            border-left: 3px solid var(--accent);
+            font-size: 13.5px;
+            line-height: 1.5;
+            color: var(--text);
+            transition: all 0.15s;
+        }
+        .feature-item:hover {
+            background: var(--accent-light);
+            border-left-color: #6d28d9;
+        }
+
+        /* 适用学段 */
+        .levels-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .level-chip {
+            padding: 8px 14px;
+            background: var(--accent-light);
+            color: var(--accent);
+            border-radius: 20px;
+            font-size: 12.5px;
+            font-weight: 500;
+            transition: all 0.15s;
+            cursor: default;
+        }
+        .level-chip:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(124,58,237,0.15);
+        }
+
+        /* 知识点标签 */
+        .kp-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .kp-tag {
+            padding: 6px 12px;
+            background: #f1f5f9;
+            color: #475569;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid #e2e8f0;
+            transition: all 0.15s;
+        }
+        .kp-tag:hover {
+            background: #e2e8f0;
+            color: #1e293b;
+        }
+
+        /* 示例卡片 */
+        .examples-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-top: 4px;
+        }
+        .example-card {
+            background: #fafafa;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 18px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        .example-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .example-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(124,58,237,0.12);
+            background: white;
+        }
+        .example-card:hover::before { opacity: 1; }
+        .example-icon {
+            font-size: 22px;
+            margin-bottom: 10px;
+        }
+        .example-title {
+            font-size: 14.5px;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 6px;
+        }
+        .example-desc {
+            font-size: 12.5px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+            margin-bottom: 12px;
+        }
+        .example-use {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .example-use .arrow { transition: transform 0.2s; }
+        .example-card:hover .example-use .arrow { transform: translateX(4px); }
+
+        /* 快速启动输入区 */
+        .quick-start {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            margin-bottom: 28px;
+        }
+        .quick-start .label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+        .quick-row {
+            display: flex;
+            gap: 10px;
+        }
+        .quick-row textarea {
+            flex: 1;
+            padding: 14px 16px;
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            font-size: 14px;
+            resize: none;
+            outline: none;
+            font-family: inherit;
+            min-height: 80px;
+            line-height: 1.6;
+            transition: all 0.2s;
+            background: #fafafa;
+        }
+        .quick-row textarea:focus {
+            border-color: var(--accent);
+            background: white;
+            box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+        }
+        .quick-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .quick-btn {
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+        .quick-btn.generate {
+            background: var(--accent);
+            color: white;
+        }
+        .quick-btn.generate:hover {
+            background: #6d28d9;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(124,58,237,0.3);
+        }
+        .quick-btn.reset {
+            background: #f1f5f9;
+            color: var(--text-secondary);
+        }
+        .quick-btn.reset:hover {
+            background: #e2e8f0;
+            color: var(--text);
+        }
+        .quick-upload-btn {
+            padding: 12px 14px;
+            border-radius: 12px;
+            font-size: 18px;
+            cursor: pointer;
+            border: 2px solid var(--border);
+            background: #fff;
+            transition: all 0.2s;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .quick-upload-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(124,58,237,0.04);
+        }
+        .attachment-previews {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .attached-card {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px 6px 12px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #eef2ff 0%, #f5f3ff 100%);
+            border: 1px solid #e0e7ff;
+            font-size: 12.5px;
+            color: #3730a3;
+            max-width: 420px;
+        }
+        .attached-card .icon { font-size: 15px; }
+        .attached-card .meta { display: flex; flex-direction: column; line-height: 1.3; }
+        .attached-card .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+        .attached-card .sub { color: #6b7280; font-size: 11px; }
+        .attached-card .close {
+            border: none;
+            background: rgba(255,255,255,0.7);
+            color: #9ca3af;
+            cursor: pointer;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            font-size: 13px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+        .attached-card .close:hover { background: #fee2e2; color: #dc2626; }
+        .attached-card.loading { opacity: 0.7; }
+
+        /* 底部模块导航 */
+        .modules-nav {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            padding: 20px 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+        }
+        .nav-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 14px;
+        }
+        .nav-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+        }
+        .nav-item {
+            padding: 12px 14px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.15s;
+            border: 1px solid transparent;
+        }
+        .nav-item:hover {
+            background: var(--accent-light);
+            border-color: rgba(124,58,237,0.2);
+        }
+        .nav-item.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        .nav-item .emoji { font-size: 18px; }
+        .nav-item .name {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        /* 滚动条 */
+        .main::-webkit-scrollbar { width: 6px; }
+        .main::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
+        .sidebar-sessions::-webkit-scrollbar { width: 4px; }
+        .sidebar-sessions::-webkit-scrollbar-thumb { background: #45475a; border-radius: 10px; }
+
+        /* ========= 历史记录增强样式 ========= */
+        .hist-toolbar {
+            display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+            padding: 14px 16px; background: linear-gradient(135deg, #f5f3ff 0%, #eef2ff 100%);
+            border: 1px solid #e0e7ff; border-radius: 14px; margin-bottom: 18px;
+        }
+        .hist-search {
+            position: relative; flex: 1; min-width: 220px;
+        }
+        .hist-search input {
+            width: 100%; padding: 10px 14px 10px 38px; border-radius: 10px;
+            border: 1.5px solid #e0e7ff; background: #fff;
+            font-size: 13.5px; outline: none; transition: all .15s;
+        }
+        .hist-search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,58,237,0.12); }
+        .hist-search::before {
+            content: "🔍"; position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+            font-size: 14px; opacity: .6;
+        }
+        .hist-filter-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .chip-filter {
+            padding: 6px 12px; border-radius: 999px;
+            background: #fff; border: 1px solid #e0e7ff; cursor: pointer;
+            font-size: 12px; font-weight: 600; color: #4b5563;
+            display: inline-flex; align-items: center; gap: 5px; transition: all .15s;
+            user-select: none;
+        }
+        .chip-filter:hover { border-color: var(--accent); color: var(--accent); }
+        .chip-filter.active {
+            background: var(--accent); color: #fff; border-color: var(--accent);
+            box-shadow: 0 3px 10px rgba(124,58,237,0.25);
+        }
+        .chip-filter .cnt {
+            background: rgba(255,255,255,0.25); padding: 1px 7px; border-radius: 999px;
+            font-size: 10.5px; color: #fff;
+        }
+        .chip-filter:not(.active) .cnt { background: #f3f4f6; color: #6b7280; }
+        .hist-summary {
+            display: flex; gap: 14px; align-items: center; padding: 0 2px 12px 2px;
+            margin-bottom: 6px; flex-wrap: wrap;
+        }
+        .hist-stats-card {
+            flex: 1; min-width: 130px; padding: 12px 14px; border-radius: 12px;
+            background: #fff; border: 1px solid var(--border);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .hist-stats-card .ic { font-size: 22px; }
+        .hist-stats-card .lbl { font-size: 11px; color: var(--text-secondary); font-weight: 500; }
+        .hist-stats-card .val { font-size: 20px; font-weight: 800; color: var(--text); line-height: 1.1; }
+
+        .hist-list { display: flex; flex-direction: column; gap: 14px; }
+        .hist-card {
+            position: relative; background: #fff; border-radius: 16px;
+            border: 1px solid var(--border); overflow: hidden;
+            transition: all .22s cubic-bezier(.4,0,.2,1); cursor: pointer;
+            display: flex;
+        }
+        .hist-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 14px 30px -12px rgba(0,0,0,0.12);
+            border-color: #cbd5e1;
+        }
+        .hist-side {
+            width: 6px; flex-shrink: 0; background: var(--accent);
+        }
+        .hist-body { flex: 1; padding: 16px 18px; min-width: 0; }
+        .hist-top {
+            display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px;
+        }
+        .hist-title-row {
+            display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1;
+        }
+        .mod-chip {
+            flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;
+            padding: 3px 10px; border-radius: 8px;
+            background: #f3f4f6; color: #374151; font-size: 11.5px; font-weight: 700;
+            white-space: nowrap;
+        }
+        .hist-title {
+            font-size: 15px; font-weight: 700; color: var(--text); line-height: 1.45;
+            overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; word-break: break-word;
+        }
+        .hist-meta {
+            flex-shrink: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        }
+        .meta-pill {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 3px 9px; border-radius: 999px;
+            background: #f1f5f9; color: #64748b; font-size: 11px; font-weight: 600;
+            white-space: nowrap;
+        }
+        .meta-pill.blue   { background: #eff6ff; color: #1d4ed8; }
+        .meta-pill.green  { background: #ecfdf5; color: #047857; }
+        .meta-pill.amber  { background: #fffbeb; color: #b45309; }
+        .meta-pill.violet { background: #f5f3ff; color: #6d28d9; }
+
+        .hist-previews { margin: 8px 0 10px 0; display: flex; flex-direction: column; gap: 6px; }
+        .preview-line {
+            display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; line-height: 1.6;
+        }
+        .preview-line .who {
+            flex-shrink: 0; padding: 2px 6px; border-radius: 6px;
+            font-size: 10.5px; font-weight: 700; color: #fff; margin-top: 1px;
+        }
+        .preview-line.user .who   { background: linear-gradient(135deg,#6366f1,#8b5cf6); }
+        .preview-line.ai .who     { background: linear-gradient(135deg,#10b981,#06b6d4); }
+        .preview-line .txt {
+            color: #475569; overflow: hidden;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word;
+        }
+
+        .hist-badges {
+            display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0 0;
+        }
+        .file-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 5px 10px; border-radius: 8px;
+            background: #f8fafc; border: 1px solid #e2e8f0;
+            font-size: 11.5px; color: #334155; font-weight: 600;
+            max-width: 260px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+        }
+        .file-badge .fn { color: #475569; font-weight: 500; }
+        .file-badge.ppt   { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+        .file-badge.docx  { border-color: #bfdbfe; background: #eff6ff; color: #1e40af; }
+        .file-badge.pdf   { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+        .file-badge.exam  { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+        .file-badge.md    { border-color: #ddd6fe; background: #f5f3ff; color: #5b21b6; }
+
+        .hist-foot {
+            margin-top: 12px; padding-top: 10px; border-top: 1px dashed #e2e8f0;
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        }
+        .hist-times {
+            display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+            font-size: 11px; color: #94a3b8;
+        }
+        .hist-times b { color: #64748b; font-weight: 600; }
+        .hist-actions { display: flex; gap: 6px; align-items: center; }
+        .hist-btn {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 6px 12px; border-radius: 8px; border: 1px solid #e2e8f0;
+            background: #fff; color: #334155; font-size: 12px; font-weight: 600;
+            cursor: pointer; transition: all .15s;
+        }
+        .hist-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .hist-btn.primary {
+            background: linear-gradient(135deg, var(--accent) 0%, #8b5cf6 100%);
+            color: #fff; border-color: transparent;
+            box-shadow: 0 4px 10px rgba(124,58,237,0.2);
+        }
+        .hist-btn.primary:hover { filter: brightness(1.05); transform: translateY(-1px); }
+        .hist-btn.danger { color: #dc2626; }
+        .hist-btn.danger:hover { background: #fef2f2; border-color: #fecaca; }
+
+        .hist-empty {
+            padding: 70px 20px; text-align: center;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border-radius: 18px; border: 2px dashed #e2e8f0;
+        }
+        .hist-empty .ic { font-size: 64px; margin-bottom: 14px; opacity: .8; }
+        .hist-empty .t  { font-size: 17px; font-weight: 700; color: #334155; margin-bottom: 6px; }
+        .hist-empty .d  { font-size: 13px; color: #64748b; max-width: 420px; margin: 0 auto; line-height: 1.6; }
+    </style>
+</head>
+<body>
+    <!-- ====== 侧边栏 ====== -->
+    <aside class="sidebar">
+        <div class="sidebar-header" onclick="location.href='/'">
+            <h2>📚 备课助手</h2>
+            <p>Lesson Preparation Agent</p>
+        </div>
+        <div class="back-btn" onclick="location.href='/'">
+            🏠 返回首页
+        </div>
+        <div class="sidebar-sessions">
+            <div style="padding: 10px 14px; font-size: 11px; color: #6c7086; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">
+                当前模块
+            </div>
+            <div style="padding: 10px 14px; background: var(--sidebar-active); border-radius: 8px; margin: 0 6px; display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 18px;">{{ module.emoji }}</span>
+                <span style="font-size: 13px; color: #fff; font-weight: 500;">{{ module.name }}</span>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <span class="model-name">🤖 {{ model }}</span>
+        </div>
+    </aside>
+
+    <!-- ====== 主区域 ====== -->
+    <div class="main">
+        <div class="topbar">
+            <div class="topbar-inner">
+                <div class="breadcrumb">
+                    <a href="/">首页</a>
+                    <span class="sep">/</span>
+                    <span class="current">{{ module.name }}</span>
+                </div>
+                <div class="user-info">
+                    <div class="user-avatar">👤</div>
+                    <span class="user-name">{{ username }}</span>
+                    <a href="/logout" class="logout-btn">退出</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="content">
+            <!-- Hero 头部 -->
+            <div class="module-hero">
+                <div class="hero-inner">
+                    <div class="hero-left">
+                        <div class="hero-icon">{{ module.emoji }}</div>
+                        <div class="hero-title">{{ module.name }}</div>
+                        <div class="hero-subtitle">{{ module.description }}</div>
+                        <div class="hero-tags">
+                            {% for level in module.grade_levels %}
+                            <span class="hero-tag">📚 {{ level }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="hero-right">
+                        <button class="hero-btn primary" onclick="useDefaultPrompt()">
+                            ⚡ 一键生成示例
+                        </button>
+                        <button class="hero-btn secondary" onclick="document.getElementById('quick-input').focus()">
+                            ✏️ 自定义需求
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 快速启动 -->
+            <div class="quick-start">
+                <div class="label">💡 快速开始：在此输入您的具体需求，或上传教案模板 / 学生作业成绩表，AI 将按照「{{ module.name }}」模块的格式规范生成内容</div>
+                <input type="file" id="quick-file-input" multiple
+                    accept=".md,.txt,.docx,.xlsx,.csv,.pdf" style="display:none"
+                    onchange="onPickQuickFile(event)">
+                <div class="quick-row">
+                    <button class="quick-upload-btn" title="上传教案模板、学生作业/成绩表、参考资料等" onclick="document.getElementById('quick-file-input').click()">📎</button>
+                    <textarea id="quick-input" placeholder="例如：{{ module.default_prompt }}"
+                        onkeydown="if(event.key==='Enter'&&event.ctrlKey){event.preventDefault();generate()}">{{ module.default_prompt }}</textarea>
+                    <div class="quick-actions">
+                        <button class="quick-btn generate" onclick="generate()">
+                            🚀 开始生成
+                        </button>
+                        <button class="quick-btn reset" onclick="resetInput()">
+                            🔄 重置
+                        </button>
+                    </div>
+                </div>
+                <div class="attachment-previews" id="quick-attachment-previews"></div>
+                <div style="margin-top: 10px; font-size: 12px; color: var(--text-secondary);">
+                    💡 支持上传 md / txt / docx / xlsx / csv / pdf（20MB 以内）。按 Ctrl + Enter 可快速提交
+                </div>
+            </div>
+
+            <!-- 主体内容 两列 -->
+            <div class="grid">
+                <!-- 左侧：功能特点 + 示例推荐 -->
+                <div style="display: flex; flex-direction: column; gap: 24px;">
+                    <div class="section-card">
+                        <div class="section-title">
+                            <span class="icon">✨</span>
+                            功能特点
+                        </div>
+                        <div class="features-list">
+                            {% for feature in module.features %}
+                            <div class="feature-item">{{ feature }}</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    {% if module_id == 'history' %}
+                    <div class="section-card">
+                        <div class="section-title">
+                            <span class="icon">📜</span>
+                            所有历史会话（共 {{ history_sessions | length }} 条）
+                        </div>
+
+                        {% if history_sessions | length == 0 %}
+                        <div class="hist-empty">
+                            <div class="ic">📭</div>
+                            <div class="t">暂无历史记录</div>
+                            <div class="d">快去其他模块（PPT生成 / 教案生成 / 作业分析 等）生成您的第一份教学资源吧，所有生成的文件和对话都会保存在这里！</div>
+                        </div>
+                        {% else %}
+
+                        {% set total_msgs = namespace(v=0) %}
+                        {% set total_files = namespace(v=0) %}
+                        {% set total_user = namespace(v=0) %}
+                        {% set total_asst = namespace(v=0) %}
+                        {% set mod_counts = {} %}
+                        {% for s in history_sessions %}
+                            {% set total_msgs.v = total_msgs.v + (s.msg_count or 0) %}
+                            {% set total_files.v = total_files.v + (s.file_count or 0) %}
+                            {% set total_user.v = total_user.v + (s.user_count or 0) %}
+                            {% set total_asst.v = total_asst.v + (s.assistant_count or 0) %}
+                        {% endfor %}
+
+                        <div class="hist-summary">
+                            <div class="hist-stats-card">
+                                <div class="ic">📁</div>
+                                <div><div class="lbl">总会话</div><div class="val">{{ history_sessions | length }}</div></div>
+                            </div>
+                            <div class="hist-stats-card">
+                                <div class="ic">💬</div>
+                                <div><div class="lbl">消息总数</div><div class="val">{{ total_msgs.v }}</div></div>
+                            </div>
+                            <div class="hist-stats-card">
+                                <div class="ic">🤖</div>
+                                <div><div class="lbl">AI 回复</div><div class="val">{{ total_asst.v }}</div></div>
+                            </div>
+                            <div class="hist-stats-card">
+                                <div class="ic">📎</div>
+                                <div><div class="lbl">生成文件</div><div class="val">{{ total_files.v }}</div></div>
+                            </div>
+                        </div>
+
+                        <div class="hist-toolbar">
+                            <div class="hist-search">
+                                <input id="histSearchInput" type="text" placeholder="搜索会话标题 / 用户提问 / AI回答内容…（支持任意关键词）">
+                            </div>
+                            <div class="hist-filter-chips" id="histFilterChips">
+                                <span class="chip-filter active" data-mod="all">全部</span>
+                                {% for m in all_modules %}
+                                    {% set cnt = namespace(v=0) %}{% for s in history_sessions if s.module_id == m.id %}{% set cnt.v = cnt.v + 1 %}{% endfor %}
+                                    <span class="chip-filter" data-mod="{{ m.id }}">{{ m.emoji }} {{ m.name }} <span class="cnt">{{ cnt.v }}</span></span>
+                                {% endfor %}
+                                {% set gcnt = namespace(v=0) %}{% for s in history_sessions if s.module_id == 'general' %}{% set gcnt.v = gcnt.v + 1 %}{% endfor %}
+                                {% if gcnt.v > 0 %}
+                                <span class="chip-filter" data-mod="general">💬 自由 <span class="cnt">{{ gcnt.v }}</span></span>
+                                {% endif %}
+                                <span class="chip-filter" data-mod="hasfile">📎 有文件</span>
+                            </div>
+                        </div>
+
+                        <div class="hist-list" id="histList">
+                            {% for s in history_sessions %}
+                            {% set sid = s.id %}
+                            <div class="hist-card" data-mod="{{ s.module_id }}" data-files="{{ s.file_count or 0 }}"
+                                 data-title="{{ (s.title or '') | e }}" data-user="{{ (s.user_preview or '') | e }}" data-ai="{{ (s.ai_preview or '') | e }}"
+                                 onclick="gotoSession('{{ sid }}')">
+                                <div class="hist-side" style="background: {{ s.module_color }};"></div>
+                                <div class="hist-body">
+                                    <div class="hist-top">
+                                        <div class="hist-title-row">
+                                            <span class="mod-chip" style="background: {{ s.module_gradient }}12; color: {{ s.module_color }}; border:1px solid {{ s.module_color }}33;">
+                                                {{ s.module_emoji }} {{ s.module_name }}
+                                            </span>
+                                            <div class="hist-title">{{ s.title }}</div>
+                                        </div>
+                                        <div class="hist-meta">
+                                            {% if s.file_count > 0 %}
+                                            <span class="meta-pill amber">📎 {{ s.file_count }} 个文件</span>
+                                            {% endif %}
+                                            {% if s.user_count > 0 %}
+                                            <span class="meta-pill violet">👤 提问 {{ s.user_count }}</span>
+                                            {% endif %}
+                                            {% if s.assistant_count > 0 %}
+                                            <span class="meta-pill green">🤖 回复 {{ s.assistant_count }}</span>
+                                            {% endif %}
+                                            <span class="meta-pill blue">💬 共 {{ s.msg_count }} 条</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="hist-previews">
+                                        {% if s.user_preview %}
+                                        <div class="preview-line user">
+                                            <span class="who">你</span>
+                                            <div class="txt">{{ s.user_preview }}</div>
+                                        </div>
+                                        {% endif %}
+                                        {% if s.ai_preview %}
+                                        <div class="preview-line ai">
+                                            <span class="who">AI</span>
+                                            <div class="txt">{{ s.ai_preview }}</div>
+                                        </div>
+                                        {% endif %}
+                                    </div>
+
+                                    {% if s.badges and s.badges | length > 0 %}
+                                    <div class="hist-badges">
+                                        {% for b in s.badges %}
+                                        {% set cls = 'md' %}
+                                        {% set lname = (b.sample or b.kind) | lower %}
+                                        {% if b.kind == 'PPT' or 'ppt' in lname or '.pptx' in lname %}{% set cls = 'ppt' %}
+                                        {% elif b.kind == '教案' or 'docx' in lname or '.doc' in lname %}{% set cls = 'docx' %}
+                                        {% elif b.kind == '练习册' or b.kind == '习题' or '习题' in (b.sample or '') %}{% set cls = 'exam' %}
+                                        {% elif '.pdf' in lname %}{% set cls = 'pdf' %}
+                                        {% endif %}
+                                        <span class="file-badge {{ cls }}" title="{{ b.sample | e }}">
+                                            {{ b.icon }} {{ b.kind }} ×{{ b.count }}
+                                            {% if b.sample %}<span class="fn">· {{ b.sample }}</span>{% endif %}
+                                        </span>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+
+                                    <div class="hist-foot">
+                                        <div class="hist-times">
+                                            {% if s.created_at %}
+                                            <span>📅 开始：<b>{{ s.created_at }}</b></span>
+                                            {% endif %}
+                                            {% if s.updated_at and s.updated_at != s.created_at %}
+                                            <span>⏰ 最后：<b>{{ s.updated_at }}</b></span>
+                                            {% endif %}
+                                        </div>
+                                        <div class="hist-actions" onclick="event.stopPropagation();">
+                                            {% if s.pk %}
+                                            <button class="hist-btn danger" onclick="deleteSessionConfirm('{{ s.pk }}','{{ s.id }}','{{ s.title | e }}')">🗑 删除</button>
+                                            {% endif %}
+                                            <button class="hist-btn primary" onclick="gotoSession('{{ s.id }}')">→ 继续对话</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+
+                        <div id="histEmptyFilter" style="display:none; padding:44px 20px; text-align:center; color:#64748b; font-size:13.5px;">
+                            <div style="font-size:40px; margin-bottom:8px;">🔍</div>
+                            没有匹配到相关会话，试试换个关键词或模块筛选～
+                        </div>
+
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <div class="section-card">
+                        <div class="section-title">
+                            <span class="icon">🎯</span>
+                            精选示例（点击即可使用）
+                        </div>
+                        <div class="examples-grid">
+                            {% for ex in module.examples %}
+                            <div class="example-card" onclick="useExample('{{ ex.prompt | e }}')">
+                                <div class="example-icon">{{ module.emoji }}</div>
+                                <div class="example-title">{{ ex.title }}</div>
+                                <div class="example-desc">{{ ex.desc }}</div>
+                                <div class="example-use">
+                                    使用此模板
+                                    <span class="arrow">→</span>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- 右侧：适用学段 + 知识点 -->
+                <div style="display: flex; flex-direction: column; gap: 24px;">
+                    <div class="section-card">
+                        <div class="section-title">
+                            <span class="icon">🎓</span>
+                            适用学段
+                        </div>
+                        <div class="levels-list">
+                            {% for level in module.grade_levels %}
+                            <span class="level-chip">{{ level }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <div class="section-card">
+                        <div class="section-title">
+                            <span class="icon">🧠</span>
+                            相关知识点
+                        </div>
+                        <div class="kp-tags">
+                            {% for kp in module.knowledge_points %}
+                            <span class="kp-tag">#{{ kp }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 底部模块导航 -->
+            <div class="modules-nav">
+                <div class="nav-title">🧭 浏览其他模块</div>
+                <div class="nav-list">
+                    {% for m in all_modules %}
+                    <a href="/module/{{ m.id }}" class="nav-item {% if m.id == module_id %}active{% endif %}">
+                        <span class="emoji">{{ m.emoji }}</span>
+                        <span class="name">{{ m.name }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let attachedFiles = [];
+
+        function renderQuickAttachments() {
+            const box = document.getElementById('quick-attachment-previews');
+            if (!attachedFiles.length) { box.innerHTML = ''; return; }
+            box.innerHTML = attachedFiles.map(f => {
+                const ext = (f.name.split('.').pop() || '').toLowerCase();
+                const icon = f.kind.includes('教案') || f.kind.includes('模板') ? '📋'
+                           : f.kind.includes('作业') || f.kind.includes('成绩') || f.kind.includes('数据') ? '📊'
+                           : ext === 'pdf' ? '📕'
+                           : ext === 'docx' ? '📘'
+                           : ext === 'xlsx' || ext === 'csv' ? '📈'
+                           : '📄';
+                const loading = f.loading ? ' loading' : '';
+                const sub = f.loading
+                    ? (f.error ? f.error : `${f.kind || '处理中'} · ${f.chars ? f.chars+'字' : ''}`)
+                    : `${f.kind || '识别中'} · ${(f.chars||0).toLocaleString()} 字`;
+                return `<div class="attached-card${loading}" data-id="${f.id}">
+                    <span class="icon">${icon}</span>
+                    <div class="meta">
+                        <span class="name" title="${f.name}">${f.name}</span>
+                        <span class="sub">${sub}</span>
+                    </div>
+                    <button class="close" title="移除" onclick="removeQuickAttachment('${f.id}')">✕</button>
+                </div>`;
+            }).join('');
+        }
+
+        function removeQuickAttachment(id) {
+            attachedFiles = attachedFiles.filter(f => f.id !== id);
+            renderQuickAttachments();
+        }
+
+        async function onPickQuickFile(ev) {
+            const files = Array.from(ev.target.files || []);
+            ev.target.value = '';
+            if (!files.length) return;
+            for (const file of files) {
+                const id = 'att_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                const entry = { id, name: file.name, kind: '上传中', chars: 0, text: '', loading: true, error: '' };
+                attachedFiles.push(entry);
+                renderQuickAttachments();
+                try {
+                    const fd = new FormData();
+                    fd.append('file', file);
+                    const r = await fetch('/api/upload', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        body: fd,
+                    });
+                    const data = await r.json();
+                    if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+                    entry.kind = data.kind;
+                    entry.chars = data.chars;
+                    entry.text = data.full_text;
+                    entry.loading = false;
+                    renderQuickAttachments();
+                } catch (err) {
+                    entry.loading = false;
+                    entry.error = '❌ 上传失败：' + (err.message || String(err));
+                    renderQuickAttachments();
+                    setTimeout(() => removeQuickAttachment(id), 4000);
+                }
+            }
+        }
+
+        function gotoSession(sid) {
+            window.location.href = '/?session=' + encodeURIComponent(sid);
+        }
+
+        function useDefaultPrompt() {
+            const input = document.getElementById('quick-input');
+            input.value = {{ module.default_prompt | tojson }};
+            input.focus();
+            input.scrollTop = input.scrollHeight;
+            generate();
+        }
+
+        function useExample(prompt) {
+            const input = document.getElementById('quick-input');
+            input.value = prompt;
+            input.focus();
+            input.scrollTop = input.scrollHeight;
+            setTimeout(() => generate(), 200);
+        }
+
+        function resetInput() {
+            const input = document.getElementById('quick-input');
+            input.value = {{ module.default_prompt | tojson }};
+            attachedFiles = [];
+            renderQuickAttachments();
+            input.focus();
+        }
+
+        async function generate() {
+            const input = document.getElementById('quick-input');
+            const text = input.value.trim();
+            if (!text && !attachedFiles.length) {
+                alert('请输入需求或上传文件');
+                return;
+            }
+
+            try {
+                await fetch('/api/sessions', { method: 'GET', credentials: 'same-origin' });
+                const id = Date.now().toString(36);
+
+                sessionStorage.setItem('pendingMessage_' + id, text);
+                if (attachedFiles.length) {
+                    sessionStorage.setItem('pendingAttachments_' + id, JSON.stringify(
+                        attachedFiles.map(f => ({ name: f.name, kind: f.kind, text: f.text, chars: f.chars }))
+                    ));
+                }
+
+                window.location.href = '/?session=' + id + '&autoSend=1';
+            } catch (e) {
+                alert('操作失败：' + e.message);
+            }
+        }
+
+        /* ========= 历史记录：搜索 / 筛选 / 删除 ========= */
+        (function initHistoryInteractions(){
+            if (!document.getElementById('histList')) return;
+            const listEl = document.getElementById('histList');
+            const emptyEl = document.getElementById('histEmptyFilter');
+            const searchInput = document.getElementById('histSearchInput');
+            const chipsBar = document.getElementById('histFilterChips');
+            let currentMod = 'all';
+            let currentKw = '';
+
+            function apply() {
+                const cards = listEl.querySelectorAll('.hist-card');
+                let visible = 0;
+                const kw = currentKw.trim().toLowerCase();
+                cards.forEach(c => {
+                    const mod = c.getAttribute('data-mod') || '';
+                    const fc = parseInt(c.getAttribute('data-files') || '0', 10);
+                    const title = (c.getAttribute('data-title') || '').toLowerCase();
+                    const userT = (c.getAttribute('data-user') || '').toLowerCase();
+                    const aiT = (c.getAttribute('data-ai') || '').toLowerCase();
+                    let ok = true;
+                    if (currentMod === 'hasfile') { if (!(fc > 0)) ok = false; }
+                    else if (currentMod !== 'all') { if (mod !== currentMod) ok = false; }
+                    if (ok && kw) {
+                        const hay = title + ' ' + userT + ' ' + aiT;
+                        if (hay.indexOf(kw) === -1) ok = false;
+                    }
+                    c.style.display = ok ? '' : 'none';
+                    if (ok) visible++;
+                });
+                emptyEl.style.display = (visible === 0 && cards.length > 0) ? '' : 'none';
+            }
+
+            if (searchInput) {
+                searchInput.addEventListener('input', e => {
+                    currentKw = e.target.value || '';
+                    apply();
+                });
+            }
+            if (chipsBar) {
+                chipsBar.addEventListener('click', e => {
+                    const chip = e.target.closest('.chip-filter');
+                    if (!chip) return;
+                    chipsBar.querySelectorAll('.chip-filter').forEach(c => c.classList.remove('active'));
+                    chip.classList.add('active');
+                    currentMod = chip.getAttribute('data-mod') || 'all';
+                    apply();
+                });
+            }
+        })();
+
+        function deleteSessionConfirm(pk, sid, title) {
+            const safeTitle = (title || '该会话').substring(0, 30);
+            if (!confirm(`确定删除「${safeTitle}」吗？\n删除后该会话的所有聊天记录将永久清除，无法恢复。`)) return;
+            fetch('/api/session/' + encodeURIComponent(sid), {
+                method: 'DELETE', credentials: 'same-origin'
+            }).then(r => r.json()).then(data => {
+                if (data && data.status === 'ok') {
+                    location.reload();
+                } else {
+                    alert('删除失败：' + ((data && data.error) || '未知错误'));
+                }
+            }).catch(e => alert('网络错误：' + e.message));
+        }
+    </script>
+</body>
+</html>

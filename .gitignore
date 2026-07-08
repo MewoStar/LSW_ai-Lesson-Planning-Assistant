@@ -35,6 +35,9 @@ env/
 
 # 敏感配置文件（包含 API Key）
 config.yaml
+.env
+.env.local
+.env.*.local
 
 # 生成的教学资源文件
 *.md
@@ -49,3 +52,18 @@ Thumbs.db
 
 # 日志
 *.log
+
+# 数据库文件
+*.db
+*.sqlite
+app.db
+
+# 测试文件
+test_config.py
+check_syntax.py
+
+# 本地脚本
+launcher.vbs
+start.bat
+启动备课助手.ps1
+python_path.txt
