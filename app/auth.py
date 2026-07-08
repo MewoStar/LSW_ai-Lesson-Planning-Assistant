@@ -92,11 +92,12 @@ def update_user_profile(user_id: str, username: str = None, email: str = None):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def get_current_user():
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return None
-    token = auth_header[7:]
+def get_current_user(token: str = None):
+    if not token:
+        auth_header = request.headers.get("Authorization", "") if request else ""
+        if not auth_header.startswith("Bearer "):
+            return None
+        token = auth_header[7:]
     try:
         payload = jwt.decode(token, Config.JWT_SECRET_KEY, algorithms=["HS256"])
         return {
