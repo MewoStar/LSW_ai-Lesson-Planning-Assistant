@@ -1,5 +1,7 @@
 {
   "functions": {
-    "api/*.py": {}
+    "api/*.py": {
+      "memory": 256
+    }
   }
 }
