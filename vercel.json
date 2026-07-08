@@ -1,25 +1,7 @@
 {
-  "builds": [
-    {
-      "src": "api/*.py",
-      "use": "@vercel/python@3.0.11",
-      "config": {
-        "maxLambdaSize": "50mb",
-        "runtime": "python3.12"
-      }
+  "functions": {
+    "api/*.py": {
+      "runtime": "@vercel/python@3.0.11"
     }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/$1.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/templates/index.html"
-    }
-  ],
-  "env": {
-    "PYTHONPATH": "/var/task:/opt/python"
   }
 }
