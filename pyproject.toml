@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ai-lesson-planner"
 version = "2.0.0"
-description = "AI备课助手 - 云端Web应用"
+description = "AI备课助手 - Flask Web应用"
 requires-python = ">=3.10"
 dependencies = [
     "Flask==2.3.3",
@@ -20,5 +20,9 @@ dependencies = [
 ]
 
 [tool.vercel]
-dev-command = "python -m flask run --host=0.0.0.0 --port=3000"
+entrypoint = "web_app:app"
+dev-command = "python web_app.py"
 build-command = "pip install -r requirements.txt"
+
+[tool.vercel.functions]
+api/**/*.py = { memory = 256, maxDuration = 30 }
