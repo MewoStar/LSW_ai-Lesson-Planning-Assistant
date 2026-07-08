@@ -7,10 +7,6 @@
         "maxLambdaSize": "50mb",
         "runtime": "python3.12"
       }
-    },
-    {
-      "src": "static/**/*",
-      "use": "@vercel/static"
     }
   ],
   "routes": [
@@ -19,23 +15,11 @@
       "dest": "/api/$1.py"
     },
     {
-      "src": "/static/(.*)",
-      "dest": "/static/$1"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/static/index.html"
+      "dest": "/templates/index.html"
     }
   ],
-  "functions": {
-    "api/*.py": {
-      "memory": 256,
-      "maxDuration": 30,
-      "regions": ["hkg1", "sin1"]
-    }
-  },
   "env": {
     "PYTHONPATH": "/var/task:/opt/python"
-  },
-  "installCommand": "pip install -r requirements.txt --quiet"
+  }
 }
