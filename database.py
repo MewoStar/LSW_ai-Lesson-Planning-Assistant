@@ -1,9 +1,9 @@
 import sqlite3
 import os
-import hashlib
 import uuid
 from datetime import datetime
 from pathlib import Path
+from werkzeug.security import generate_password_hash, check_password_hash
 
 def get_db_path():
     if getattr(__import__('sys'), 'frozen', False):
@@ -63,16 +63,13 @@ def init_db():
     conn.commit()
     conn.close()
 
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
 def register_user(username, password, email=None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     try:
         cursor.execute(
             'INSERT INTO users (username, password_hash, email) VALUES (?, ?, ?)',
-            (username, hash_password(password), email)
+            (username, generate_password_hash(password), email)
         )
         conn.commit()
         return True
@@ -85,12 +82,12 @@ def authenticate_user(username, password):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        'SELECT id, username FROM users WHERE username = ? AND password_hash = ?',
-        (username, hash_password(password))
+        'SELECT id, username, password_hash FROM users WHERE username = ?',
+        (username,)
     )
     user = cursor.fetchone()
     conn.close()
-    if user:
+    if user and check_password_hash(user[2], password):
         return {'id': user[0], 'username': user[1]}
     return None
 
@@ -378,5 +375,32 @@ def delete_session_by_pk(user_id, pk_id):
     )
     conn.commit()
     conn.close()
+
+
+def delete_all_user_sessions(user_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        'DELETE FROM user_sessions WHERE user_id = ?',
+        (user_id,)
+    )
+    conn.commit()
+    affected = cursor.rowcount
+    conn.close()
+    return affected
+
+
+def clear_search_history(user_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        'DELETE FROM search_history WHERE user_id = ?',
+        (user_id,)
+    )
+    conn.commit()
+    affected = cursor.rowcount
+    conn.close()
+    return affected
+
 
 init_db()

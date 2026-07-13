@@ -3,6 +3,9 @@
 # 复制此文件为 config.yaml 并填入你的 API Key
 # ============================================
 
+# 安全配置（必须设置）
+secret_key: your-secret-key-here-keep-it-safe
+
 # 使用 智谱 API（有免费额度，无需下载模型）
 api_key: your-api-key-here
 base_url: https://open.bigmodel.cn/api/paas/v4

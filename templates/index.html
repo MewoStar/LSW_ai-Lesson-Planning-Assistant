@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>备课助手 · Lesson Prep Assistant</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.9/dist/purify.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -788,6 +789,11 @@
                         <div class="title">历史记录</div>
                         <div class="desc">查看所有AI生成记录与历史会话</div>
                     </div>
+                    <div class="hint-card" onclick="location.href='/module/visualization'" style="cursor:pointer;">
+                        <div class="emoji">🎬</div>
+                        <div class="title">可视化生成</div>
+                        <div class="desc">教学动画与思维导图生成</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -809,6 +815,14 @@
     </div>
 
     <script>
+        function safeMarked(text) {
+            const raw = marked.parse(text || '', { breaks: true, gfm: true });
+            if (window.DOMPurify) {
+                return DOMPurify.sanitize(raw, { ADD_ATTR: ['target'] });
+            }
+            return raw;
+        }
+
         let sessions = {};
         let activeSession = null;
         const idx = {};
@@ -1072,6 +1086,11 @@
                             <div class="title">历史记录</div>
                             <div class="desc">查看所有AI生成记录与历史会话</div>
                         </div>
+                        <div class="hint-card" onclick="location.href='/module/visualization'" style="cursor:pointer;">
+                            <div class="emoji">🎬</div>
+                            <div class="title">可视化生成</div>
+                            <div class="desc">教学动画与思维导图生成</div>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1109,7 +1128,7 @@
             div.className = `msg ${role}`;
             div.innerHTML = `
                 <div class="msg-avatar">${role === 'user' ? '👤' : '🤖'}</div>
-                <div class="msg-bubble">${marked.parse(content)}</div>`;
+                <div class="msg-bubble">${safeMarked(content)}</div>`;
             chat.appendChild(div);
             chat.scrollTop = chat.scrollHeight;
             return div;
@@ -1239,7 +1258,7 @@
 
                 return `<div class="msg ${m.role}">
                     <div class="msg-avatar">${m.role === 'user' ? '👤' : '🤖'}</div>
-                    <div class="msg-bubble">${marked.parse(m.content)}${thinkingBox}${fileBadges}${pptBadges}${wordButton}</div>
+                    <div class="msg-bubble">${safeMarked(m.content)}${thinkingBox}${fileBadges}${pptBadges}${wordButton}</div>
                 </div>`;
             }).join('');
             chat.scrollTop = chat.scrollHeight;
@@ -1458,7 +1477,7 @@
                                     thinkingDone = true;
                                 }
                                 fullContent += data.content;
-                                contentEl.innerHTML = marked.parse(fullContent);
+                                contentEl.innerHTML = safeMarked(fullContent);
                                 if (!cursorEl) {
                                     cursorEl = document.createElement('span');
                                     cursorEl.className = 'cursor-blink';
