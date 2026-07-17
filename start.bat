@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 cd /d "%~dp0"
-start "" wscript //nologo "%~dp0launcher.vbs"
+start "" wscript start.vbs
 exit

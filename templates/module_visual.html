@@ -15,137 +15,381 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg: #f8f9fa;
-            --sidebar-bg: #1e1e2e;
-            --sidebar-text: #cdd6f4;
-            --card-bg: #ffffff;
-            --text: #1e1e2e;
-            --text-secondary: #6c7086;
-            --border: #e0e3e8;
-            --accent: #8b5cf6;
-            --accent-light: #f3f0ff;
-            --accent2: #ec4899;
-            --radius: 12px;
+            --bg: #0a0e1a;
+            --cyan: #00e5ff;
+            --purple: #a855f7;
+            --green: #00ff88;
+            --pink: #ff4da6;
+            --text: #d4f7ff;
+            --text-dim: #9fb8d9;
+            --text-mute: #6b8ab8;
+            --line: #2a3a5c;
+            --panel-bg: rgba(8,14,28,0.7);
         }
+        html, body { background: #0a0e1a; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
-            background: var(--bg);
+            font-family: 'Courier New', 'Consolas', 'Microsoft YaHei', monospace;
             color: var(--text);
             min-height: 100vh;
-            display: flex;
+            overflow-x: hidden;
+            position: relative;
         }
+        /* ---- 背景：科技网格 + 扫描线 ---- */
+        body::before {
+            content: '';
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background-image:
+                linear-gradient(rgba(0,220,255,0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,220,255,0.05) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+        body::after {
+            content: '';
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: repeating-linear-gradient(0deg,
+                rgba(0,0,0,0.15) 0px,
+                rgba(0,0,0,0.15) 1px,
+                transparent 1px,
+                transparent 3px);
+            pointer-events: none;
+            z-index: 1;
+            animation: scan 8s linear infinite;
+        }
+        @keyframes scan {
+            0% { background-position: 0 0; }
+            100% { background-position: 0 100%; }
+        }
+
+        /* ---- 侧边栏 ---- */
         .sidebar {
-            width: 260px;
-            background: var(--sidebar-bg);
-            color: var(--sidebar-text);
+            position: fixed; top: 0; left: 0;
+            width: 240px; height: 100vh;
+            background: rgba(8,14,28,0.95);
+            border-right: 1px solid #00e5ff33;
+            z-index: 10;
+            box-shadow: 4px 0 30px rgba(0,229,255,0.08);
             display: flex;
             flex-direction: column;
-            flex-shrink: 0;
-            min-height: 100vh;
+            color: var(--text);
         }
         .sidebar-header {
-            padding: 20px 18px;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
+            padding: 24px 20px;
+            border-bottom: 1px dashed #00e5ff33;
+            text-align: center;
             cursor: pointer;
         }
-        .sidebar-header:hover { background: rgba(255,255,255,0.02); }
+        .sidebar-header:hover { background: rgba(0,229,255,0.04); }
         .sidebar-header h2 {
-            font-size: 16px;
+            font-size: 22px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            color: var(--cyan);
+            text-shadow: 0 0 20px #00e5ff88;
+            display: block;
+        }
+        .sidebar-header p {
+            font-size: 10px;
+            color: var(--text-mute);
+            margin-top: 4px;
+            letter-spacing: 3px;
+        }
+        .sidebar-sessions { display: none; }
+        .sidebar-modules {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px 14px;
+        }
+        .module-item {
+            padding: 11px 14px;
+            border: 1px solid #2a3a5c;
+            border-radius: 2px;
+            margin-bottom: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.25s;
+            font-size: 12px;
+            color: var(--text-mute);
+            background: rgba(0,229,255,0.02);
+        }
+        .module-item:hover {
+            border-color: #00e5ff66;
+            color: var(--cyan);
+            transform: translateX(4px);
+            box-shadow: -4px 0 16px rgba(0,229,255,0.15);
+        }
+        .module-item.active {
+            background: linear-gradient(135deg, rgba(0,229,255,0.18), rgba(168,85,247,0.12));
+            border-color: var(--cyan);
+            color: #fff;
+        }
+        .module-item .emoji { font-size: 18px; }
+        .module-item .nm { font-family: 'Microsoft YaHei', sans-serif; letter-spacing: 0; }
+
+        .back-btn {
+            margin: 14px 16px 0;
+            padding: 12px;
+            text-align: center;
+            border: 1px solid #00e5ff66;
+            color: var(--cyan);
+            border-radius: 2px;
+            cursor: pointer;
+            font-size: 12px;
+            letter-spacing: 1px;
+            transition: all 0.3s;
+            background: rgba(0,229,255,0.03);
+            font-family: inherit;
+        }
+        .back-btn:hover {
+            background: rgba(0,229,255,0.15);
+            box-shadow: 0 0 20px rgba(0,229,255,0.3);
+        }
+        .sidebar-footer {
+            margin-top: auto;
+            padding: 14px 16px;
+            border-top: 1px dashed #2a3a5c;
+            font-size: 11px;
+            color: var(--text-mute);
+            display: flex; align-items: center; gap: 8px;
+        }
+        .sidebar-footer .dot-led {
+            width: 8px; height: 8px;
+            background: var(--green);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--green);
+            animation: pulseLed 1.2s infinite;
+            flex-shrink: 0;
+        }
+        @keyframes pulseLed {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+        }
+
+        /* 状态面板 */
+        .status-panel {
+            margin: 14px 16px 0;
+            padding: 12px;
+            border: 1px solid #2a3a5c;
+            border-radius: 4px;
+            background: rgba(0,16,32,0.5);
+        }
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            padding: 4px 0;
+            color: var(--text-mute);
+            letter-spacing: 1px;
+        }
+        .status-row .v { color: var(--cyan); }
+        .status-row .v.ok { color: var(--green); }
+
+        /* ---- 主区域 ---- */
+        .main-content {
+            margin-left: 240px;
+            position: relative;
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        /* 顶部 HUD */
+        .hud-top {
+            padding: 12px 32px;
+            background: rgba(8,14,28,0.9);
+            border-bottom: 1px solid #00e5ff22;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            letter-spacing: 1px;
+            position: sticky; top: 0; z-index: 20;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        .crumbs { color: var(--text-mute); }
+        .crumbs .sep { margin: 0 8px; color: #2a3a5c; }
+        .crumbs .cur { color: var(--cyan); }
+        .hud-right { display: flex; gap: 20px; color: var(--text-mute); align-items: center; }
+        .hud-right .ok { color: var(--green); }
+
+        .top-bar { display: none; }
+        .module-icon { display: none; }
+        .module-info { display: none; }
+
+        .content-area {
+            flex: 1;
+            padding: 0;
+            overflow-y: auto;
+        }
+
+        /* ---- Hero 主视觉 ---- */
+        .hero {
+            position: relative;
+            padding: 50px 60px 32px;
+            overflow: hidden;
+        }
+        .atom-bg {
+            position: absolute;
+            right: -40px; top: -20px;
+            width: 380px; height: 380px;
+            opacity: 0.25;
+            animation: rotateAtom 20s linear infinite;
+            pointer-events: none;
+        }
+        @keyframes rotateAtom { to { transform: rotate(360deg); } }
+        .hero h1 {
+            font-size: 52px;
+            font-weight: 900;
+            background: linear-gradient(90deg, #00e5ff, #a855f7, #00e5ff);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: shine 3s linear infinite;
+            letter-spacing: 4px;
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            position: relative;
+            z-index: 2;
+        }
+        @keyframes shine { to { background-position: 200% center; } }
+        .hero h1 .emoji {
+            font-size: 56px;
+            -webkit-text-fill-color: initial;
+            filter: drop-shadow(0 0 20px #00e5ff88);
+        }
+        .hero .code-line {
+            margin-top: 14px;
+            font-size: 13px;
+            color: var(--green);
+            opacity: 0.85;
+            padding-left: 4px;
+            position: relative; z-index: 2;
+        }
+        .hero .code-line::before { content: '> '; color: #f59e0b; }
+        .hero .desc {
+            margin-top: 20px;
+            max-width: 760px;
+            line-height: 1.9;
+            font-size: 14px;
+            color: var(--text-dim);
+            padding: 16px 20px;
+            border-left: 3px solid var(--cyan);
+            background: rgba(0,229,255,0.03);
+            font-family: 'Microsoft YaHei', sans-serif;
+            position: relative; z-index: 2;
+        }
+
+        /* ---- Console 控制台 ---- */
+        .console {
+            margin: 16px 60px 24px;
+            background: rgba(0,16,32,0.85);
+            border: 1px solid #00e5ff33;
+            border-radius: 4px;
+            box-shadow: 0 0 40px rgba(0,229,255,0.08);
+            overflow: hidden;
+        }
+        .console-head {
+            padding: 10px 16px;
+            background: #071024;
+            border-bottom: 1px solid #00e5ff22;
             display: flex;
             align-items: center;
             gap: 8px;
-            color: #fff;
-        }
-        .sidebar-header p {
-            font-size: 11px;
-            color: #a6adc8;
-            margin-top: 4px;
-        }
-        .sidebar-sessions {
-            flex: 1;
-            overflow-y: auto;
-            padding: 10px 12px;
-        }
-        .back-btn {
-            margin: 12px;
-            padding: 12px 14px;
-            border: 1px solid rgba(139,92,246,0.4);
-            border-radius: 10px;
-            background: rgba(139,92,246,0.1);
-            color: #c4b5fd;
-            text-align: center;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        .back-btn:hover {
-            background: rgba(139,92,246,0.2);
-            border-color: var(--accent);
-            color: #fff;
-        }
-        .sidebar-footer {
-            padding: 12px 18px;
-            border-top: 1px solid rgba(255,255,255,0.06);
             font-size: 12px;
-            color: #585b70;
         }
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-height: 100vh;
-            overflow: hidden;
+        .console-head .cdot { width: 10px; height: 10px; border-radius: 50%; }
+        .cdot.r { background: #ff5f57; }
+        .cdot.y { background: #febc2e; }
+        .cdot.g { background: #28c840; }
+        .console-head .title { color: var(--text-mute); margin-left: 12px; letter-spacing: 1px; }
+        .console-head .status { margin-left: auto; color: var(--green); font-size: 11px; }
+        .console-body { padding: 20px; }
+        .console-label {
+            font-size: 11px;
+            color: #f59e0b;
+            margin-bottom: 8px;
+            letter-spacing: 1px;
         }
-        .top-bar {
-            background: var(--card-bg);
-            border-bottom: 1px solid var(--border);
-            padding: 16px 24px;
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-        .module-icon { font-size: 32px; }
-        .module-info h1 { font-size: 20px; font-weight: 600; }
-        .module-info p { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
-        .content-area {
-            flex: 1;
-            padding: 24px;
-            overflow-y: auto;
-        }
+        .console-label::before { content: '# '; }
+
+        /* 输入卡片改造（保留原class以兼容） */
         .input-card {
-            background: var(--card-bg);
-            border-radius: var(--radius);
-            padding: 24px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-            margin-bottom: 20px;
+            margin: 0;
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            padding: 0;
         }
         .input-label {
-            font-size: 14px;
-            font-weight: 500;
-            color: var(--text);
-            margin-bottom: 12px;
+            font-size: 11px;
+            color: #f59e0b;
+            margin-bottom: 8px;
+            letter-spacing: 1px;
+            font-weight: normal;
         }
+        .input-label::before { content: '# '; }
+        textarea#topic-input,
         textarea {
             width: 100%;
             min-height: 100px;
-            padding: 14px;
-            border: 2px solid var(--border);
-            border-radius: 10px;
-            font-size: 14px;
-            font-family: inherit;
+            padding: 14px 16px;
+            background: #020814;
+            border: 1px solid #00e5ff22;
+            color: var(--green);
+            font-family: 'Courier New', 'Consolas', monospace;
+            font-size: 13px;
+            line-height: 1.7;
             resize: vertical;
             outline: none;
-            transition: border-color 0.2s;
+            caret-color: var(--green);
+            border-radius: 2px;
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
-        textarea:focus { border-color: var(--accent); }
+        textarea:focus {
+            border-color: #00e5ff66;
+            box-shadow: 0 0 0 2px rgba(0,229,255,0.1);
+        }
+
+        .examples {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 14px;
+        }
+        .example-tag {
+            padding: 6px 14px;
+            background: linear-gradient(135deg, rgba(0,229,255,0.06), rgba(168,85,247,0.04));
+            border: 1px solid #00e5ff33;
+            color: var(--cyan);
+            border-radius: 2px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.25s;
+            font-family: 'Microsoft YaHei', sans-serif;
+            letter-spacing: 0;
+        }
+        .example-tag:hover {
+            border-color: #00e5ff66;
+            transform: translateX(4px);
+            box-shadow: -4px 0 14px rgba(0,229,255,0.15);
+            color: #fff;
+        }
+
         .layout-label {
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--text-secondary);
-            margin-top: 16px;
+            font-size: 11px;
+            color: #f59e0b;
+            margin-top: 18px;
             margin-bottom: 8px;
+            letter-spacing: 1px;
+            font-weight: normal;
         }
+        .layout-label::before { content: '# '; }
         .layout-btns {
             display: flex;
             gap: 10px;
@@ -153,26 +397,29 @@
         }
         .layout-btn {
             flex: 1;
-            padding: 10px 12px;
-            border: 2px solid var(--border);
-            border-radius: 10px;
-            background: white;
+            padding: 12px 10px;
+            border: 1px solid #2a3a5c;
+            border-radius: 2px;
+            background: rgba(0,16,32,0.5);
             cursor: pointer;
             text-align: center;
-            transition: all 0.2s;
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--text);
+            transition: all 0.25s;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-mute);
+            font-family: 'Microsoft YaHei', sans-serif;
+            letter-spacing: 0;
         }
         .layout-btn:hover {
-            border-color: var(--accent);
-            background: var(--accent-light);
+            border-color: #00e5ff66;
+            color: var(--cyan);
+            transform: translateY(-2px);
         }
         .layout-btn.active {
-            border-color: var(--accent);
-            background: var(--accent-light);
-            color: var(--accent);
-            box-shadow: 0 2px 8px rgba(139,92,246,0.15);
+            background: linear-gradient(135deg, rgba(0,229,255,0.18), rgba(168,85,247,0.14));
+            border-color: var(--cyan);
+            color: #fff;
+            box-shadow: 0 0 18px rgba(0,229,255,0.25);
         }
         .layout-btn .layout-icon {
             font-size: 20px;
@@ -187,87 +434,154 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
-            margin-top: 16px;
+            margin-top: 18px;
         }
         @media (max-width: 700px) {
             .btn-row { grid-template-columns: 1fr; }
             .layout-btns { flex-wrap: wrap; }
+            .console { margin: 16px 20px; }
+            .hero { padding: 30px 20px; }
+            .hero h1 { font-size: 32px; }
+            .grid2 { margin: 20px !important; grid-template-columns: 1fr !important; }
+            .mod-switch { margin: 20px !important; }
+            .mod-list { grid-template-columns: repeat(2,1fr) !important; }
         }
         .btn {
-            padding: 12px 24px;
-            border: none;
-            border-radius: 10px;
-            font-size: 14px;
-            font-weight: 600;
+            padding: 12px 20px;
+            border: 1px solid;
+            border-radius: 2px;
+            font-size: 13px;
+            font-weight: 700;
             cursor: pointer;
-            transition: all 0.2s;
-            color: white;
+            transition: all 0.25s;
+            color: #000;
+            font-family: inherit;
+            letter-spacing: 1px;
+            position: relative;
+            overflow: hidden;
         }
         .btn-mindmap {
-            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            background: linear-gradient(135deg, #00e5ff, #00b3cc);
+            border-color: #00e5ff;
+            color: #001a20;
+        }
+        .btn-mindmap:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 24px rgba(0,229,255,0.45);
         }
         .btn-animation {
-            background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
+            background: linear-gradient(135deg, #a855f7, #7c3aed);
+            border-color: #a855f7;
+            color: #fff;
+        }
+        .btn-animation:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 24px rgba(168,85,247,0.45);
         }
         .btn-all {
             grid-column: 1 / -1;
-            background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+            background: linear-gradient(135deg, #00e5ff, #a855f7);
+            border-color: #00e5ff;
+            color: #001a20;
         }
-        .btn:hover:not(:disabled) {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(139,92,246,0.3);
+        .btn-all:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 28px rgba(0,229,255,0.5);
         }
         .btn:disabled {
-            opacity: 0.6;
+            opacity: 0.5;
             cursor: not-allowed;
+            filter: grayscale(0.4);
         }
-        .results-grid {
+
+        /* ---- 双栏结果面板 ---- */
+        .results-grid, .grid2 {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            gap: 24px;
+            margin: 0 60px 32px;
         }
         @media (max-width: 1000px) {
-            .results-grid { grid-template-columns: 1fr; }
+            .results-grid, .grid2 { grid-template-columns: 1fr; }
         }
         .result-card {
-            background: var(--card-bg);
-            border-radius: var(--radius);
-            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            background: rgba(8,14,28,0.7);
+            border: 1px solid #00e5ff22;
+            border-radius: 4px;
             overflow: hidden;
             display: none;
+            position: relative;
+            box-shadow: 0 0 30px rgba(0,229,255,0.05);
+        }
+        .result-card::before {
+            content: '';
+            position: absolute; top: -1px; left: -1px;
+            width: 14px; height: 14px;
+            border-top: 2px solid var(--cyan);
+            border-left: 2px solid var(--cyan);
+            z-index: 2;
         }
         .result-card.show { display: block; }
         .result-header {
-            padding: 14px 20px;
-            background: var(--accent-light);
-            border-bottom: 1px solid var(--border);
+            padding: 12px 18px;
+            background: rgba(0,16,32,0.6);
+            border-bottom: 1px dashed #00e5ff33;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            gap: 10px;
         }
         .result-header.animation {
-            background: #fdf2f8;
+            background: rgba(168,85,247,0.08);
+            border-bottom-color: #a855f733;
         }
         .result-title {
-            font-size: 15px;
-            font-weight: 600;
+            font-size: 13px;
+            font-weight: 700;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+            color: var(--cyan);
+            letter-spacing: 1px;
+        }
+        .result-header.animation .result-title { color: var(--purple); }
+        .result-title .t-no {
+            font-size: 10px;
+            color: var(--text-mute);
+            border: 1px solid #2a3a5c;
+            padding: 2px 6px;
+            border-radius: 2px;
+            font-weight: normal;
+            letter-spacing: 0;
         }
         .status-tag {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
+            padding: 3px 10px;
+            border: 1px solid;
+            border-radius: 2px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            font-family: inherit;
         }
-        .status-processing { background: #fef3c7; color: #92400e; }
-        .status-success { background: #dcfce7; color: #166534; }
-        .status-error { background: #fee2e2; color: #991b1b; }
+        .status-processing {
+            background: rgba(251,191,36,0.1);
+            color: #fbbf24;
+            border-color: #fbbf2466;
+        }
+        .status-success {
+            background: rgba(0,255,136,0.1);
+            color: var(--green);
+            border-color: #00ff8866;
+        }
+        .status-error {
+            background: rgba(255,77,166,0.1);
+            color: var(--pink);
+            border-color: #ff4da666;
+        }
         .mindmap-container {
             height: 500px;
             width: 100%;
-            background: white;
+            background: #ffffff;
             overflow: auto;
             position: relative;
         }
@@ -282,82 +596,112 @@
             margin-left: auto;
         }
         .zoom-btn {
-            width: 28px;
-            height: 28px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            background: white;
+            width: 26px;
+            height: 26px;
+            border: 1px solid #2a3a5c;
+            border-radius: 2px;
+            background: #020814;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 14px;
             font-weight: 600;
-            color: #374151;
+            color: var(--cyan);
             transition: all 0.15s;
+            font-family: inherit;
         }
         .zoom-btn:hover {
-            background: #f3f4f6;
-            border-color: #9ca3af;
-        }
-        .zoom-btn:active {
-            background: #e5e7eb;
+            background: rgba(0,229,255,0.12);
+            border-color: #00e5ff66;
+            box-shadow: 0 0 10px rgba(0,229,255,0.2);
         }
         .zoom-value {
-            font-size: 12px;
-            color: #6b7280;
-            min-width: 40px;
+            font-size: 11px;
+            color: var(--cyan);
+            min-width: 42px;
             text-align: center;
+            letter-spacing: 1px;
         }
         .animation-container {
             height: 400px;
             width: 100%;
-            background: transparent;
+            background: #020814;
             position: relative;
             overflow: hidden;
-            border: 1px solid #e0e3e8;
-            border-radius: 12px;
+            border: 1px solid #00e5ff33;
+            border-radius: 2px;
         }
         .error-box {
             padding: 24px;
-            color: #dc2626;
-            background: #fef2f2;
+            color: var(--pink);
+            background: rgba(255,77,166,0.06);
+            border-top: 1px dashed #ff4da633;
+            font-family: 'Microsoft YaHei', sans-serif;
         }
         .loading-box {
-            padding: 40px;
+            padding: 40px 30px;
             text-align: center;
-            color: var(--text-secondary);
+            background: linear-gradient(135deg, rgba(0,229,255,0.05), rgba(168,85,247,0.04));
+            border-bottom: 1px dashed #00e5ff22;
         }
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid var(--border);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
+        .loading-box .spinner-wrapper {
+            position: relative;
+            width: 64px;
+            height: 64px;
             margin: 0 auto 16px;
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .examples {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
+        .loading-box .spinner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 2px solid rgba(0,229,255,0.15);
+            border-top-color: var(--cyan);
+            border-right-color: var(--purple);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            box-shadow: 0 0 20px rgba(0,229,255,0.3);
+        }
+        .loading-box .spinner-emoji {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 28px;
+        }
+        .loading-box .loading-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--cyan);
+            margin-bottom: 6px;
+            letter-spacing: 1px;
+        }
+        .loading-box .loading-subtitle {
+            font-size: 12px;
+            color: var(--text-dim);
+            font-family: 'Microsoft YaHei', sans-serif;
+        }
+        .loading-box .loading-dots {
+            display: inline-flex;
+            gap: 4px;
             margin-top: 12px;
         }
-        .example-tag {
-            padding: 6px 12px;
-            background: #f3f4f6;
-            border-radius: 20px;
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s;
+        .loading-box .loading-dots span {
+            width: 6px;
+            height: 6px;
+            background: var(--cyan);
+            border-radius: 50%;
+            animation: loadingDot 1.4s infinite;
+            box-shadow: 0 0 6px var(--cyan);
         }
-        .example-tag:hover {
-            background: var(--accent-light);
-            color: var(--accent);
-        }
-        
-        /* 动画元素样式 */
+        .loading-box .loading-dots span:nth-child(2) { animation-delay: 0.2s; background: var(--purple); }
+        .loading-box .loading-dots span:nth-child(3) { animation-delay: 0.4s; background: var(--green); }
+        @keyframes loadingDot { 0%,80%,100% { opacity: 0.2; transform: scale(0.7); } 40% { opacity: 1; transform: scale(1); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* 动画元素样式（保留功能性） */
         .anim-title {
             position: absolute;
             top: 20px;
@@ -366,13 +710,13 @@
             color: white;
             font-size: 24px;
             font-weight: bold;
-            text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            text-shadow: 0 0 12px rgba(0,229,255,0.6);
             opacity: 0;
             animation: fadeInDown 1s forwards;
         }
         .anim-object {
             position: absolute;
-            border-radius: 8px;
+            border-radius: 4px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -380,14 +724,16 @@
             font-weight: bold;
             font-size: 14px;
             text-align: center;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            box-shadow: 0 0 16px rgba(0,229,255,0.4);
+            border: 1px solid rgba(255,255,255,0.2);
         }
         .anim-arrow {
             position: absolute;
             height: 3px;
-            background: #fbbf24;
+            background: var(--green);
             transform-origin: left center;
             opacity: 0;
+            box-shadow: 0 0 8px var(--green);
         }
         .anim-arrow::after {
             content: '';
@@ -395,16 +741,19 @@
             right: -8px;
             top: -5px;
             border: 6px solid transparent;
-            border-left-color: #fbbf24;
+            border-left-color: var(--green);
         }
         .anim-label {
             position: absolute;
-            color: white;
-            font-size: 13px;
-            background: rgba(0,0,0,0.5);
+            color: var(--cyan);
+            font-size: 12px;
+            background: rgba(2,8,20,0.85);
             padding: 4px 10px;
-            border-radius: 12px;
+            border: 1px solid #00e5ff44;
+            border-radius: 2px;
             opacity: 0;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 1px;
         }
         @keyframes fadeInDown {
             from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
@@ -436,47 +785,199 @@
             left: 50%;
             transform: translateX(-50%);
             padding: 8px 20px;
-            background: rgba(255,255,255,0.95);
-            border: none;
-            border-radius: 20px;
+            background: linear-gradient(135deg, #00e5ff, #a855f7);
+            border: 1px solid #00e5ff;
+            border-radius: 2px;
             cursor: pointer;
-            font-weight: 600;
-            color: #7c3aed;
-            font-size: 13px;
+            font-weight: 700;
+            color: #001a20;
+            font-size: 12px;
             z-index: 10;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            letter-spacing: 1px;
+            font-family: inherit;
+            box-shadow: 0 0 18px rgba(0,229,255,0.4);
         }
         .play-btn:hover {
-            background: white;
             transform: translateX(-50%) scale(1.05);
+            box-shadow: 0 0 28px rgba(0,229,255,0.6);
+        }
+        .regen-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #00e5ff, #a855f7);
+            color: #001a20;
+            border: 1px solid #00e5ff;
+            border-radius: 2px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.25s;
+            box-shadow: 0 0 18px rgba(0,229,255,0.3);
+            letter-spacing: 1px;
+            font-family: inherit;
+        }
+        .regen-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 22px rgba(168,85,247,0.5);
+        }
+
+        /* 思维导图下载按钮（JS动态生成，使用 .download-btn-mindmap） */
+        .download-btn-mindmap {
+            margin: 12px 20px !important;
+            padding: 8px 16px !important;
+            background: linear-gradient(135deg, #00e5ff, #a855f7) !important;
+            color: #001a20 !important;
+            border: 1px solid #00e5ff !important;
+            border-radius: 2px !important;
+            cursor: pointer !important;
+            font-size: 12px !important;
+            font-weight: 700 !important;
+            letter-spacing: 1px !important;
+            font-family: inherit !important;
+            box-shadow: 0 0 16px rgba(0,229,255,0.3) !important;
+        }
+        .download-btn-anim {
+            position: absolute !important;
+            bottom: 15px !important;
+            right: 15px !important;
+            padding: 8px 16px !important;
+            background: linear-gradient(135deg, #a855f7, #00e5ff) !important;
+            color: #fff !important;
+            border: 1px solid #a855f7 !important;
+            border-radius: 2px !important;
+            cursor: pointer !important;
+            font-size: 12px !important;
+            font-weight: 700 !important;
+            letter-spacing: 1px !important;
+            font-family: inherit !important;
+            z-index: 11 !important;
+            box-shadow: 0 0 16px rgba(168,85,247,0.4) !important;
+        }
+
+        /* ---- 底部模块切换 ---- */
+        .mod-switch {
+            margin: 0 60px 40px;
+            padding: 20px 24px;
+            background: rgba(8,14,28,0.6);
+            border: 1px solid #2a3a5c;
+            border-radius: 4px;
+            position: relative;
+        }
+        .mod-switch::before {
+            content: '';
+            position: absolute; top: -1px; left: -1px;
+            width: 14px; height: 14px;
+            border-top: 2px solid var(--cyan);
+            border-left: 2px solid var(--cyan);
+        }
+        .mod-switch h4 {
+            font-size: 11px;
+            color: var(--text-mute);
+            letter-spacing: 2px;
+            margin-bottom: 14px;
+        }
+        .mod-list {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 10px;
+        }
+        .mod-link {
+            padding: 14px 10px;
+            text-align: center;
+            border: 1px solid #2a3a5c;
+            border-radius: 2px;
+            cursor: pointer;
+            color: var(--text-mute);
+            text-decoration: none;
+            transition: all 0.25s;
+            display: flex; flex-direction: column; gap: 6px; align-items: center;
+            background: rgba(0,16,32,0.4);
+        }
+        .mod-link:hover {
+            border-color: #00e5ff66;
+            color: var(--cyan);
+            transform: translateY(-2px);
+        }
+        .mod-link.active {
+            background: linear-gradient(135deg, rgba(0,229,255,0.18), rgba(168,85,247,0.12));
+            border-color: var(--cyan);
+            color: #fff;
+            box-shadow: 0 0 18px rgba(0,229,255,0.25);
+        }
+        .mod-link .em { font-size: 22px; }
+        .mod-link .nm { font-size: 12px; font-family: 'Microsoft YaHei', sans-serif; letter-spacing: 0; }
+        @media (max-width: 960px) {
+            .sidebar { display: none; }
+            .main-content { margin-left: 0; }
+            .mod-list { grid-template-columns: repeat(3, 1fr); }
         }
     </style>
 </head>
 <body>
-    <div class="sidebar">
+    <aside class="sidebar">
         <div class="sidebar-header" onclick="location.href='/'">
-            <h2>📚 AI备课助手</h2>
-            <p>欢迎您，{{ username }}</p>
+            <h2>⚛ VISUAL</h2>
+            <p>LAB · SYSTEM v5.0</p>
         </div>
-        <div class="back-btn" onclick="location.href='/'">← 返回首页</div>
-        <div class="sidebar-sessions">
-            <div style="padding: 8px; font-size: 12px; color: #585b70; margin-top: 10px;">模块导航</div>
+        <div class="back-btn" onclick="location.href='/'">◀ 返回主控台</div>
+        <div class="status-panel">
+            <div class="status-row"><span>系统状态</span><span class="v ok">ONLINE</span></div>
+            <div class="status-row"><span>AI 模型</span><span class="v">GLM-4.6</span></div>
+            <div class="status-row"><span>算力占用</span><span class="v">72%</span></div>
+            <div class="status-row"><span>实验进度</span><span class="v">READY</span></div>
+        </div>
+        <div class="sidebar-modules">
+            {% for m in all_modules %}
+            <div class="module-item {% if m.id == module_id %}active{% endif %}"
+                 onclick="window.location.href='/module/{{ m.id }}'">
+                <span class="emoji">{{ m.emoji }}</span>
+                <span class="nm">{{ m.name }}</span>
+            </div>
+            {% endfor %}
         </div>
         <div class="sidebar-footer">
-            当前模块：{{ module.emoji }} {{ module.name }}
+            <span class="dot-led"></span>
+            <span>{{ module.emoji }} {{ module.name }} · {{ username }}</span>
         </div>
-    </div>
+    </aside>
 
     <div class="main-content">
-        <div class="top-bar">
-            <div class="module-icon">{{ module.emoji }}</div>
-            <div class="module-info">
-                <h1>{{ module.name }}</h1>
-                <p>{{ module.short_desc }}</p>
+        <div class="hud-top">
+            <div class="crumbs">
+                <a href="/" style="color:#00e5ff;text-decoration:none;">[主控台]</a>
+                <span class="sep">›</span>
+                <span>[可视化模块]</span>
+                <span class="sep">›</span>
+                <span class="cur">[{{ module.name }}]</span>
+            </div>
+            <div class="hud-right">
+                <span>⚙ VISUAL_MODULE</span>
+                <span class="ok">● 链接稳定</span>
             </div>
         </div>
 
         <div class="content-area">
+            <section class="hero">
+                <svg class="atom-bg" viewBox="0 0 200 200">
+                    <circle cx="100" cy="100" r="14" fill="#00e5ff" opacity="0.8"/>
+                    <ellipse cx="100" cy="100" rx="90" ry="30" fill="none" stroke="#00e5ff" stroke-width="1.2" opacity="0.7"/>
+                    <ellipse cx="100" cy="100" rx="90" ry="30" fill="none" stroke="#a855f7" stroke-width="1.2" opacity="0.7" transform="rotate(60 100 100)"/>
+                    <ellipse cx="100" cy="100" rx="90" ry="30" fill="none" stroke="#00e5ff" stroke-width="1.2" opacity="0.7" transform="rotate(120 100 100)"/>
+                    <circle cx="190" cy="100" r="4" fill="#00ff88"/>
+                    <circle cx="145" cy="178" r="4" fill="#ff4da6"/>
+                    <circle cx="55" cy="178" r="4" fill="#febc2e"/>
+                </svg>
+                <h1><span class="emoji">{{ module.emoji }}</span>{{ module.name }}</h1>
+                <div class="code-line">Initializing visualization environment...</div>
+                <div class="desc">{{ module.short_desc }}</div>
+            </section>
+
+            <section class="console">
+                <div class="console-head">
+                    <span class="cdot r"></span><span class="cdot y"></span><span class="cdot g"></span>
+                    <span class="title">COMMAND_CONSOLE · /visual/generate.exe</span>
+                    <span class="status">● READY</span>
+                </div>
+                <div class="console-body">
             <div class="input-card">
                 <div class="input-label">📝 输入课程主题或知识点</div>
                 <textarea id="topic-input" placeholder="例如：牛顿第一定律、楞次定律、光合作用、勾股定理...">牛顿第一定律</textarea>
@@ -491,15 +992,15 @@
 
                 <div class="layout-label">🧩 选择思维导图布局</div>
                 <div class="layout-btns">
-                    <div class="layout-btn active" data-layout="logic" onclick="selectLayout(this, 'logic')">
+                    <div class="layout-btn active" data-layout="logic">
                         <span class="layout-icon">🔀</span>
                         <span class="layout-name">逻辑图</span>
                     </div>
-                    <div class="layout-btn" data-layout="tree" onclick="selectLayout(this, 'tree')">
+                    <div class="layout-btn" data-layout="tree">
                         <span class="layout-icon">🌳</span>
                         <span class="layout-name">组织结构图</span>
                     </div>
-                    <div class="layout-btn" data-layout="rect" onclick="selectLayout(this, 'rect')">
+                    <div class="layout-btn" data-layout="rect">
                         <span class="layout-icon">📐</span>
                         <span class="layout-name">矩形思维导图</span>
                     </div>
@@ -507,21 +1008,24 @@
 
                 <div class="btn-row">
                     <button class="btn btn-all" id="btn-all" onclick="generateAll()">
-                        🚀 一键生成动画+思维导图
+                        ▶ RUN ALL · 一键生成动画+思维导图
                     </button>
                     <button class="btn btn-mindmap" id="btn-mindmap" onclick="generateMindmap()">
-                        🧠 只生成思维导图
+                        ▶ MINDMAP · 生成思维导图
                     </button>
                     <button class="btn btn-animation" id="btn-animation" onclick="generateAnimation()">
-                        🎬 只生成动画
+                        ▶ ANIMATION · 生成动画
                     </button>
                 </div>
+                </div>
             </div>
+            </section>
 
             <div class="results-grid">
                 <div class="result-card" id="card-mindmap">
                     <div class="result-header" style="display:flex;align-items:center;">
                         <div class="result-title">
+                            <span class="t-no">01</span>
                             <span>🧠</span>
                             <span>思维导图</span>
                         </div>
@@ -534,29 +1038,58 @@
                         </div>
                     </div>
                     <div id="mindmap-loading" class="loading-box" style="display:none;">
-                        <div class="spinner"></div>
-                        <div>正在生成思维导图...</div>
+                        <div class="spinner-wrapper">
+                            <div class="spinner"></div>
+                            <span class="spinner-emoji">🧠</span>
+                        </div>
+                        <div class="loading-title">正在生成思维导图</div>
+                        <div class="loading-subtitle">AI 正在分析内容结构...</div>
+                        <div class="loading-dots"><span></span><span></span><span></span></div>
                     </div>
                     <div id="mindmap" class="mindmap-container" style="display:none;"></div>
                     <div id="mindmap-error" class="error-box" style="display:none;"></div>
+                    <div id="mindmap-actions" style="display:none; padding: 12px; text-align: center;">
+                        <button class="regen-btn" onclick="regenerateMindmap()">🔄 重新生成思维导图</button>
+                    </div>
                 </div>
 
                 <div class="result-card" id="card-animation">
                     <div class="result-header animation">
                         <div class="result-title">
+                            <span class="t-no">02</span>
                             <span>🎬</span>
                             <span>教学动画</span>
                         </div>
                         <span class="status-tag status-processing" id="status-animation">等待中</span>
                     </div>
                     <div id="animation-loading" class="loading-box" style="display:none;">
-                        <div class="spinner"></div>
-                        <div>正在生成教学动画...</div>
+                        <div class="spinner-wrapper">
+                            <div class="spinner"></div>
+                            <span class="spinner-emoji">🎬</span>
+                        </div>
+                        <div class="loading-title">正在生成教学动画</div>
+                        <div class="loading-subtitle">AI 正在构建动画序列...</div>
+                        <div class="loading-dots"><span></span><span></span><span></span></div>
                     </div>
                     <div id="animation-canvas" class="animation-container" style="display:none;"></div>
                     <div id="animation-error" class="error-box" style="display:none;"></div>
+                    <div id="animation-actions" style="display:none; padding: 12px; text-align: center;">
+                        <button class="regen-btn" onclick="regenerateAnimation()">🔄 重新生成教学动画</button>
+                    </div>
                 </div>
             </div>
+
+            <section class="mod-switch">
+                <h4>◈ SWITCH MODULE · 切换功能模块</h4>
+                <div class="mod-list">
+                    {% for m in all_modules %}
+                        <a href="/module/{{ m.id }}" class="mod-link {% if m.id == module_id %}active{% endif %}">
+                            <span class="em">{{ m.emoji }}</span>
+                            <span class="nm">{{ m.name }}</span>
+                        </a>
+                    {% endfor %}
+                </div>
+            </section>
         </div>
     </div>
 
@@ -565,6 +1098,14 @@
         var mm = null;
         var animElements = [];
         var animPlaying = false;
+        var mermaidLoading = false;
+
+        function sanitizeFilename(name) {
+            if (!name) return '未命名';
+            var safe = name.replace(/[\\/:*?"<>|\x00-\x1F]/g, '_');
+            safe = safe.replace(/_{2,}/g, '_');
+            return safe.substring(0, 50).replace(/_$/, '');
+        }
 
         document.addEventListener('DOMContentLoaded', function() {
             bindLayoutButtons();
@@ -641,7 +1182,8 @@
                     setStatus('mindmap', '已完成', 'success');
                     document.getElementById('mindmap-loading').style.display = 'none';
                     document.getElementById('mindmap').style.display = 'block';
-                    
+                    document.getElementById('mindmap-actions').style.display = 'block';
+
                     renderMindmap(data.content, data.layout || currentLayout, data.format || 'markdown');
                 } else {
                     throw new Error(data.error || '生成失败');
@@ -772,7 +1314,23 @@
                 }
 
                 if (typeof mermaid === 'undefined') {
-                    throw new Error('Mermaid库未加载');
+                    if (mermaidLoading) {
+                        setTimeout(function() { renderMermaidDiagram(mermaidCode, layout, zoomWrapper); }, 200);
+                        return;
+                    }
+                    mermaidLoading = true;
+                    var script = document.createElement('script');
+                    script.src = '{{ url_for("static", filename="js/mermaid.min.js") }}?v=2';
+                    script.onload = function() {
+                        mermaidLoading = false;
+                        renderMermaidDiagram(mermaidCode, layout, zoomWrapper);
+                    };
+                    script.onerror = function() {
+                        mermaidLoading = false;
+                        throw new Error('Mermaid库加载失败');
+                    };
+                    document.head.appendChild(script);
+                    return;
                 }
 
                 var cleanCode = mermaidCode.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
@@ -1019,8 +1577,8 @@
                     'rect': '矩形思维导图'
                 };
                 var layoutName = layoutNames[currentLayout] || '思维导图';
-                var topic = document.getElementById('topic-input').value || '未命名';
-                var filename = layoutName + '_' + topic.replace(/[\\/:*?"<>|]/g, '_') + '.png';
+                var topic = sanitizeFilename(document.getElementById('topic-input').value) || '未命名';
+                var filename = layoutName + '_' + topic + '.png';
 
                 img.onload = function() {
                     try {
@@ -1028,12 +1586,23 @@
                         URL.revokeObjectURL(url);
 
                         var pngUrl = canvas.toDataURL('image/png');
-                        var link = document.createElement('a');
-                        link.href = pngUrl;
-                        link.download = filename;
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
+                        
+                        if (typeof window.pywebview !== 'undefined' && window.pywebview.api && window.pywebview.api.save_blob) {
+                            var byteString = atob(pngUrl.split(',')[1]);
+                            var ab = new ArrayBuffer(byteString.length);
+                            var ia = new Uint8Array(ab);
+                            for (var i = 0; i < byteString.length; i++) {
+                                ia[i] = byteString.charCodeAt(i);
+                            }
+                            window.pywebview.api.save_blob(Array.from(ia), filename);
+                        } else {
+                            var link = document.createElement('a');
+                            link.href = pngUrl;
+                            link.download = filename;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                        }
                         
                         img = null;
                         canvas = null;
@@ -1160,6 +1729,7 @@
                     document.getElementById('animation-loading').style.display = 'none';
                     var canvas = document.getElementById('animation-canvas');
                     canvas.style.display = 'block';
+                    document.getElementById('animation-actions').style.display = 'block';
                     // 新格式：直接渲染HTML代码
                     if (data.format === 'html' && data.html) {
                         renderAnimationHTML(canvas, data.html);
@@ -1177,6 +1747,20 @@
                 document.getElementById('animation-error').textContent = '生成失败：' + error.message;
             }
             if (!silent) setButtonsDisabled(false);
+        }
+
+        function regenerateMindmap() {
+            document.getElementById('mindmap-actions').style.display = 'none';
+            document.getElementById('mindmap').style.display = 'none';
+            document.getElementById('mindmap-error').style.display = 'none';
+            generateMindmap(false);
+        }
+
+        function regenerateAnimation() {
+            document.getElementById('animation-actions').style.display = 'none';
+            document.getElementById('animation-canvas').style.display = 'none';
+            document.getElementById('animation-error').style.display = 'none';
+            generateAnimation(false);
         }
 
         function renderAnimation(container, animData) {
@@ -1307,8 +1891,13 @@
             canvas.height = height;
             var ctx = canvas.getContext('2d');
 
+            if (!ctx || typeof canvas.captureStream !== 'function') {
+                downloadAnimationAsImage(container);
+                return;
+            }
+
             var stream = canvas.captureStream(24);
-            var mimeTypes = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+            var mimeTypes = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
             var selectedMimeType = null;
 
             for (var i = 0; i < mimeTypes.length; i++) {
@@ -1319,7 +1908,7 @@
             }
 
             if (!selectedMimeType) {
-                alert('浏览器不支持视频录制');
+                downloadAnimationAsImage(container);
                 return;
             }
 
@@ -1335,13 +1924,25 @@
             mediaRecorder.onstop = function() {
                 var blob = new Blob(chunks, { type: selectedMimeType });
                 var url = URL.createObjectURL(blob);
-                var link = document.createElement('a');
-                link.href = url;
-                var ext = selectedMimeType.indexOf('mp4') !== -1 ? 'mp4' : 'webm';
-                link.download = '教学动画_' + document.getElementById('topic-input').value + '.' + ext;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                var ext = selectedMimeType.indexOf('vp9') !== -1 ? 'webm' : 'webm';
+                var filename = '教学动画_' + sanitizeFilename(document.getElementById('topic-input').value) + '.' + ext;
+                
+                if (typeof window.pywebview !== 'undefined' && window.pywebview.api && window.pywebview.api.save_blob) {
+                    var reader = new FileReader();
+                    reader.onloadend = function() {
+                        var arrayBuffer = reader.result;
+                        var uint8Array = new Uint8Array(arrayBuffer);
+                        window.pywebview.api.save_blob(Array.from(uint8Array), filename);
+                    };
+                    reader.readAsArrayBuffer(blob);
+                } else {
+                    var link = document.createElement('a');
+                    link.href = url;
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
                 URL.revokeObjectURL(url);
             };
 
@@ -1375,6 +1976,50 @@
             }
 
             recordFrame();
+        }
+
+        // 备用方案：下载动画为图片（兼容不支持视频录制的浏览器）
+        function downloadAnimationAsImage(container) {
+            if (typeof html2canvas === 'undefined') {
+                alert('图片库加载中，请稍后再试');
+                return;
+            }
+
+            var box = container.getBoundingClientRect();
+            var width = box.width;
+            var height = box.height;
+
+            html2canvas(container, {
+                backgroundColor: null,
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                width: width,
+                height: height
+            }).then(function(canvas) {
+                var pngUrl = canvas.toDataURL('image/png');
+                var filename = '教学动画_' + sanitizeFilename(document.getElementById('topic-input').value) + '.png';
+
+                if (typeof window.pywebview !== 'undefined' && window.pywebview.api && window.pywebview.api.save_blob) {
+                    var byteString = atob(pngUrl.split(',')[1]);
+                    var ab = new ArrayBuffer(byteString.length);
+                    var ia = new Uint8Array(ab);
+                    for (var i = 0; i < byteString.length; i++) {
+                        ia[i] = byteString.charCodeAt(i);
+                    }
+                    window.pywebview.api.save_blob(Array.from(ia), filename);
+                } else {
+                    var link = document.createElement('a');
+                    link.href = pngUrl;
+                    link.download = filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+            }).catch(function(err) {
+                console.error('截图失败:', err);
+                alert('下载失败: ' + err.message);
+            });
         }
     </script>
 </body>

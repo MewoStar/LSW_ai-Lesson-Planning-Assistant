@@ -9,7 +9,7 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg: #f8f9fa;
+            --bg: #f8f6f2;
             --sidebar-bg: #1e1e2e;
             --sidebar-text: #cdd6f4;
             --sidebar-hover: #313244;
@@ -64,6 +64,53 @@
             color: #a6adc8;
             margin-top: 4px;
         }
+        .user-info {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .user-info:hover {
+            background: rgba(255,255,255,0.05);
+        }
+        .user-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+        .user-avatar img {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+        .user-details {
+            flex: 1;
+            min-width: 0;
+        }
+        .user-name {
+            font-size: 14px;
+            font-weight: 500;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .user-label {
+            font-size: 11px;
+            color: #a6adc8;
+        }
         .sidebar-sessions {
             flex: 1;
             overflow-y: auto;
@@ -106,8 +153,19 @@
             border-top: 1px solid rgba(255,255,255,0.06);
             font-size: 12px;
             color: #585b70;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
         .sidebar-footer .model-name { color: #a6adc8; }
+        .sidebar-footer .profile-link {
+            color: #a6adc8;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .sidebar-footer .profile-link:hover {
+            color: #c4b5fd;
+        }
 
         /* 管理模式 */
         .manage-bar {
@@ -537,6 +595,40 @@
             cursor: wait;
             transform: none;
         }
+
+        /* 重新生成按钮样式 */
+        .regenerate-btn {
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 12px;
+            margin-left: 8px;
+            box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+            user-select: none;
+        }
+        .regenerate-btn:hover {
+            background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+        }
+        .regenerate-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
+        }
+        .regenerate-btn:disabled {
+            opacity: 0.6;
+            cursor: wait;
+            transform: none;
+        }
         .ppt-badge {
             display: inline-flex; align-items: center; gap: 4px;
             padding: 4px 12px; background: #fff7ed; color: #ea580c;
@@ -712,6 +804,33 @@
             vertical-align: text-bottom;
         }
         @keyframes blink { 50% { opacity: 0; } }
+
+        /* AI 正在生成中指示器 */
+        .generating-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            background: linear-gradient(135deg, #ede9fe 0%, #f5f3ff 100%);
+            border: 1px solid #e9d5ff;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--accent);
+            margin-top: 8px;
+            animation: gen-fade-in 0.3s ease;
+        }
+        .generating-indicator .gen-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: gen-dot-pulse 1.4s infinite;
+        }
+        .generating-indicator .gen-dot:nth-child(2) { animation-delay: 0.2s; }
+        .generating-indicator .gen-dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes gen-dot-pulse { 0%,80%,100% { opacity: 0.2; transform: scale(0.7); } 40% { opacity: 1; transform: scale(1); } }
+        @keyframes gen-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
@@ -720,6 +839,13 @@
         <div class="sidebar-header" onclick="newSession()" style="cursor: pointer;">
             <h2>📚 备课助手</h2>
             <p>Lesson Preparation Agent</p>
+        </div>
+        <div class="user-info" id="user-info" onclick="location.href='/profile'" style="display:none;">
+            <div class="user-avatar" id="user-avatar"></div>
+            <div class="user-details">
+                <div class="user-name" id="user-display-name">用户</div>
+                <div class="user-label">个人中心</div>
+            </div>
         </div>
         <div class="new-session-btn" onclick="newSession()">+ 新对话</div>
         <div class="manage-bar">
@@ -737,12 +863,14 @@
             </button>
         </div>
         <div class="sidebar-footer">
+            <a href="/profile" class="profile-link">👤 个人资料</a>
             <span class="model-name">🤖 {{ model }}</span>
         </div>
     </aside>
 
     <!-- ====== 主区域 ====== -->
     <div class="main">
+        <div class="math-watermark"></div>
         <div class="topbar">
             <div class="topbar-left">
                 <span class="topbar-title" id="topbar-title">新对话</span>
@@ -794,6 +922,11 @@
                         <div class="title">可视化生成</div>
                         <div class="desc">教学动画与思维导图生成</div>
                     </div>
+                    <div class="hint-card" onclick="location.href='/module/exam_paper'" style="cursor:pointer;">
+                        <div class="emoji">📄</div>
+                        <div class="title">试卷生成</div>
+                        <div class="desc">AI智能生成试卷，支持多题型、难度分级</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -815,6 +948,48 @@
     </div>
 
     <script>
+        let csrfToken = '';
+
+        async function fetchCsrfToken() {
+            try {
+                const res = await fetch('/api/auth/get-csrf-token', { credentials: 'same-origin' });
+                const data = await res.json();
+                if (data.csrf_token) {
+                    csrfToken = data.csrf_token;
+                }
+            } catch (e) {
+                console.error('获取 CSRF Token 失败', e);
+            }
+        }
+
+        async function doPostWithCsrf(url, body) {
+            if (!csrfToken) {
+                await fetchCsrfToken();
+            }
+            let r = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                body: JSON.stringify(body),
+            });
+            // CSRF 失败时自动重试一次
+            if (r.status === 403) {
+                const data = await r.json().catch(() => ({}));
+                if (data.error === '请求无效') {
+                    await fetchCsrfToken();
+                    r = await fetch(url, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                        body: JSON.stringify(body),
+                    });
+                }
+            }
+            return r;
+        }
+
+        fetchCsrfToken();
+
         function safeMarked(text) {
             const raw = marked.parse(text || '', { breaks: true, gfm: true });
             if (window.DOMPurify) {
@@ -1091,6 +1266,11 @@
                             <div class="title">可视化生成</div>
                             <div class="desc">教学动画与思维导图生成</div>
                         </div>
+                        <div class="hint-card" onclick="location.href='/module/exam_paper'" style="cursor:pointer;">
+                            <div class="emoji">📄</div>
+                            <div class="title">试卷生成</div>
+                            <div class="desc">AI智能生成试卷，支持多题型、难度分级</div>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1183,6 +1363,7 @@
                 try {
                     const fd = new FormData();
                     fd.append('file', file);
+                    if (csrfToken) fd.append('_csrf_token', csrfToken);
                     const r = await fetch('/api/upload', {
                         method: 'POST',
                         credentials: 'same-origin',
@@ -1253,6 +1434,9 @@
                         </button>
                         <button class="ppt-btn" onclick="exportToPpt(${i})" title="点击下载 PPT 课件">
                             📊 下载 PPT 课件
+                        </button>
+                        <button class="regenerate-btn" onclick="regenerateMessage(${i})" title="重新生成">
+                            🔄 重新生成
                         </button>
                     </div>` : '';
 
@@ -1434,17 +1618,35 @@
             let fullContent = '';
             let thinkingDone = false;
             let cursorEl = null;
+            let generatingEl = null;
+
+            function ensureGeneratingIndicator() {
+                if (!generatingEl) {
+                    generatingEl = document.createElement('div');
+                    generatingEl.className = 'generating-indicator';
+                    generatingEl.innerHTML = 'AI 正在生成中<div class="gen-dot"></div><div class="gen-dot"></div><div class="gen-dot"></div>';
+                }
+                // 确保指示器在 contentEl 之后
+                const bubble = aiMsgDiv.querySelector('.msg-bubble');
+                if (generatingEl.parentElement !== bubble) {
+                    bubble.appendChild(generatingEl);
+                } else {
+                    bubble.appendChild(generatingEl);
+                }
+            }
+
+            function removeGeneratingIndicator() {
+                if (generatingEl) {
+                    generatingEl.remove();
+                    generatingEl = null;
+                }
+            }
 
             try {
-                const res = await fetch('/api/chat/stream', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({
-                        session_id: activeSession,
-                        message: text,
-                        attachments: userFilesSnapshot,
-                    }),
+                const res = await doPostWithCsrf('/api/chat/stream', {
+                    session_id: activeSession,
+                    message: text,
+                    attachments: userFilesSnapshot,
                 });
 
                 const reader = res.body.getReader();
@@ -1483,9 +1685,11 @@
                                     cursorEl.className = 'cursor-blink';
                                     aiMsgDiv.querySelector('.msg-bubble').appendChild(cursorEl);
                                 }
+                                ensureGeneratingIndicator();
                                 document.getElementById('chat').scrollTop = document.getElementById('chat').scrollHeight;
                             } else if (data.type === 'done') {
                                 if (cursorEl) cursorEl.remove();
+                                removeGeneratingIndicator();
 
                                 const thinkingContent = data.thinking || thinkingBox.querySelector('.thinking-phases')?.textContent || '';
 
@@ -1525,12 +1729,16 @@
                                     </button>
                                     <button class="ppt-btn" onclick="exportToPpt(${msgIdx})" title="点击下载 PPT 课件">
                                         📊 下载 PPT 课件
+                                    </button>
+                                    <button class="regenerate-btn" onclick="regenerateMessage(${msgIdx})" title="重新生成">
+                                        🔄 重新生成
                                     </button>`;
                                 aiMsgDiv.querySelector('.msg-bubble').appendChild(actionsDiv);
 
                                 document.getElementById('chat').scrollTop = document.getElementById('chat').scrollHeight;
                             } else if (data.type === 'error') {
                                 if (cursorEl) cursorEl.remove();
+                                removeGeneratingIndicator();
                                 contentEl.innerHTML = `<p style="color:red">❌ **错误:** ${escapeHtml(data.content)}</p>`;
                                 s.messages.push({ role: 'ai', content: `❌ **错误:** ${data.content}`, time: new Date() });
                             }
@@ -1541,6 +1749,7 @@
                 }
             } catch (e) {
                 if (cursorEl) cursorEl.remove();
+                removeGeneratingIndicator();
                 contentEl.innerHTML = `<p style="color:red">❌ **网络错误:** ${escapeHtml(e.message)}</p>`;
                 s.messages.push({ role: 'ai', content: `❌ **网络错误:** ${e.message}`, time: new Date() });
             }
@@ -1550,11 +1759,7 @@
         }
 
         async function clearChat() {
-            await fetch('/api/clear', {
-                method: 'POST', credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ session_id: activeSession }),
-            });
+            await doPostWithCsrf('/api/clear', { session_id: activeSession });
             sessions[activeSession] = { title: '新对话', messages: [], createdAt: new Date() };
             document.getElementById('chat').innerHTML = '';
             showWelcome();
@@ -1573,7 +1778,6 @@
                 a.href = blobUrl;
                 try { a.download = safeName; } catch(_) { a.setAttribute('download', safeName); }
                 a.style.display = 'none';
-                document.body.appendChild(a);
                 document.body.appendChild(a);
                 a.click();
                 setTimeout(() => {
@@ -1601,6 +1805,10 @@
 
         async function downloadFile(url, filename) {
             try {
+                if (typeof window.pywebview !== 'undefined' && window.pywebview.api && window.pywebview.api.download_file) {
+                    window.pywebview.api.download_file(url, filename);
+                    return true;
+                }
                 const response = await fetch(url, { credentials: 'same-origin' });
                 if (!response.ok) {
                     throw new Error('文件下载失败 (' + response.status + ')');
@@ -1615,6 +1823,10 @@
             }
         }
 
+        function _isDesktopApp() {
+            return typeof window.pywebview !== 'undefined' && window.pywebview.api && window.pywebview.api.download_file;
+        }
+
         async function exportBlob(url, body, btn, errorLabel) {
             if (!btn) return false;
             const originalText = btn.innerHTML;
@@ -1622,12 +1834,7 @@
             btn.disabled = true;
 
             try {
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'same-origin',
-                    body: JSON.stringify(body),
-                });
+                const response = await doPostWithCsrf(url, body);
 
                 if (!response.ok) {
                     let msg = errorLabel + '失败';
@@ -1638,17 +1845,22 @@
                     throw new Error(msg);
                 }
 
-                const blob = await response.blob();
                 let filename = '';
-                    const encFn = response.headers.get('X-Filename-Encoded');
-                    if (encFn) { try { filename = decodeURIComponent(encFn); } catch(_) {} }
-                    if (!filename) {
-                        const hdrFn = response.headers.get('X-Filename');
-                        if (hdrFn) filename = hdrFn;
-                        else if (url.indexOf('ppt') !== -1) filename = (body.title || '课件') + '.pptx';
-                        else filename = (body.title || '教案') + '.docx';
-                    }
-                triggerBlobDownload(blob, filename);
+                const encFn = response.headers.get('X-Filename-Encoded');
+                if (encFn) { try { filename = decodeURIComponent(encFn); } catch(_) {} }
+                if (!filename) {
+                    const hdrFn = response.headers.get('X-Filename');
+                    if (hdrFn) filename = hdrFn;
+                    else if (url.indexOf('ppt') !== -1) filename = (body.title || '课件') + '.pptx';
+                    else filename = (body.title || '教案') + '.docx';
+                }
+
+                if (_isDesktopApp()) {
+                    window.pywebview.api.download_file('/api/download/' + encodeURIComponent(filename), filename);
+                } else {
+                    const blob = await response.blob();
+                    triggerBlobDownload(blob, filename);
+                }
 
                 btn.innerHTML = '✓ 已下载';
                 btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
@@ -1673,7 +1885,6 @@
                 return;
             }
             const message = s.messages[messageIndex];
-            console.log('[DEBUG] exportToWord - content length:', message.content ? message.content.length : 0);
             if (!message.content || message.content.trim() === '') {
                 alert('该消息内容为空，无法导出 Word。请发送新消息后再试。');
                 return;
@@ -1692,9 +1903,6 @@
                 return;
             }
             const message = s.messages[messageIndex];
-            console.log('[DEBUG] exportToPpt - rawContent exists:', !!message.rawContent);
-            console.log('[DEBUG] exportToPpt - rawContent length:', message.rawContent ? message.rawContent.length : 0);
-            console.log('[DEBUG] exportToPpt - content length:', message.content ? message.content.length : 0);
             const content = message.rawContent || message.content;
             if (!content || content.trim() === '') {
                 alert('该消息内容为空，无法导出 PPT。请发送新消息后再试。');
@@ -1707,6 +1915,82 @@
             }, btn, '导出 PPT');
         }
 
+        async function regenerateMessage(messageIndex) {
+            const s = sessions[activeSession];
+            if (!s || !s.messages[messageIndex]) {
+                alert('消息不存在');
+                return;
+            }
+
+            // 找到该AI回复的上一条用户消息
+            if (messageIndex === 0) {
+                alert('无法重新生成：找不到对应的用户请求');
+                return;
+            }
+
+            let userMsgIndex = messageIndex - 1;
+            while (userMsgIndex >= 0 && s.messages[userMsgIndex].role !== 'user') {
+                userMsgIndex--;
+            }
+
+            if (userMsgIndex < 0 || s.messages[userMsgIndex].role !== 'user') {
+                alert('无法重新生成：找不到对应的用户请求');
+                return;
+            }
+
+            const userMessage = s.messages[userMsgIndex];
+            const userInput = userMessage.content || '';
+
+            if (!userInput.trim()) {
+                alert('原用户请求内容为空，无法重新生成');
+                return;
+            }
+
+            // 禁用重新生成按钮
+            const btn = document.querySelector(`button[onclick="regenerateMessage(${messageIndex})"]`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '🔄 重新生成中...';
+            }
+
+            // 删除该AI消息及其之后的所有消息
+            s.messages = s.messages.slice(0, messageIndex);
+            renderMessages();
+
+            // 重新发送请求
+            const input = document.getElementById('chat-input');
+            input.value = userInput;
+            await sendMessage();
+        }
+
+        async function loadUserInfo() {
+            try {
+                const res = await fetch('/api/profile');
+                if (res.ok) {
+                    const data = await res.json();
+                    const user = data.user || data;
+                    if (user.username) {
+                        const userInfo = document.getElementById('user-info');
+                        const userAvatar = document.getElementById('user-avatar');
+                        const userName = document.getElementById('user-display-name');
+                        
+                        userName.textContent = user.username;
+                        
+                        if (user.avatar_url) {
+                            userAvatar.innerHTML = `<img src="${user.avatar_url}" alt="头像">`;
+                        } else {
+                            userAvatar.textContent = user.username.charAt(0).toUpperCase();
+                        }
+                        
+                        userInfo.style.display = 'flex';
+                    }
+                }
+            } catch (e) {
+                console.log('获取用户信息失败:', e);
+            }
+        }
+
+        loadUserInfo();
         loadSessions();
         document.getElementById('input').focus();
 

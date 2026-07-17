@@ -2,12 +2,53 @@
 # 可视化生成模块 - 后端代码
 # ============================================
 # 用法：将本文件中的 register_visual_routes(app, ...) 集成到目标项目即可
-# 依赖：Flask、openai、re、json
+# 依赖：Flask、openai、re、json、dashscope (可选)、requests (可选)
 # ============================================
 
 import re
 import json
-from flask import jsonify, render_template, redirect, url_for
+import time
+import threading
+import traceback
+from html import escape as html_escape
+from flask import jsonify, render_template, redirect, url_for, request
+
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+
+
+_VISUAL_RATE_LIMIT = {}
+_VISUAL_RATE_LOCK = threading.Lock()
+
+def _get_visual_client_ip():
+    if request.headers.get('X-Forwarded-For'):
+        forwarded = request.headers.get('X-Forwarded-For')
+        parts = forwarded.split(',')
+        for part in parts:
+            ip = part.strip()
+            if ip and not ip.startswith('127.') and not ip.startswith('10.') and not ip.startswith('172.'):
+                return ip
+        return parts[0].strip() if parts else 'unknown'
+    return request.remote_addr or 'unknown'
+
+def _check_visual_rate_limit(ip: str) -> bool:
+    now = time.time()
+    with _VISUAL_RATE_LOCK:
+        expired_keys = [k for k, v in _VISUAL_RATE_LIMIT.items() if all(now - t > 60 for t in v)]
+        for k in expired_keys:
+            del _VISUAL_RATE_LIMIT[k]
+        if ip not in _VISUAL_RATE_LIMIT:
+            _VISUAL_RATE_LIMIT[ip] = []
+        attempts = _VISUAL_RATE_LIMIT[ip]
+        attempts = [t for t in attempts if now - t < 60]
+        _VISUAL_RATE_LIMIT[ip] = attempts
+        if len(attempts) >= 5:
+            return False
+        _VISUAL_RATE_LIMIT[ip].append(now)
+    return True
 
 
 # --------------------------------------------
@@ -18,44 +59,38 @@ def register_visual_routes(
     get_current_user,
     safe_get_json,
     database,
-    openai_client_factory,   # 一个返回 OpenAI 客户端的函数
-    model_name,              # 使用的模型名称，如 "gpt-4o-mini"
-    modules_data,            # 全局模块字典（包含 visualization 条目）
+    openai_client_factory,
+    model_name,
+    modules_data,
+    qwen_image_api_key="",
+    image_search_provider="",
+    image_search_api_key="",
     static_url_path="/static"
 ):
     """
     注册可视化生成模块的所有路由。
+
     调用此函数后，会自动添加：
       - GET  /visual                 : 重定向到 /module/visualization
-      - GET  /module/visualization   : 渲染模板
       - POST /api/visual/generate    : 生成思维导图 / 教学动画
+
+    参数：
+      - app: Flask 应用实例
+      - get_current_user: 获取当前用户的函数
+      - safe_get_json: 安全获取JSON请求体的函数
+      - database: 数据库模块
+      - openai_client_factory: 返回 OpenAI 客户端的函数
+      - model_name: 使用的模型名称
+      - modules_data: 全局模块字典（包含 visualization 条目）
+      - qwen_image_api_key: 通义万相图片生成API Key（可选）
+      - image_search_provider: 图片搜索服务提供商（unsplash/pexels，可选）
+      - image_search_api_key: 图片搜索API Key（可选）
+      - static_url_path: 静态资源路径
     """
 
     @app.route("/visual")
     def visual_redirect():
         return redirect(url_for('module_detail', module_id='visualization'))
-
-    @app.route("/module/<module_id>")
-    def module_detail(module_id):
-        if module_id not in modules_data:
-            return redirect(url_for('index'))
-        module = modules_data[module_id]
-
-        if module_id == "visualization":
-            user = get_current_user()
-            if not user:
-                return redirect(url_for('login'))
-            all_modules = [{"id": k, "name": v["name"], "emoji": v["emoji"]} for k, v in modules_data.items()]
-            return render_template(
-                "module_visual.html",
-                module=module,
-                module_id=module_id,
-                model=model_name,
-                username=user['username'],
-                all_modules=all_modules,
-                history_sessions=[]
-            )
-        return redirect(url_for('index'))
 
     @app.route("/api/visual/generate", methods=["POST"])
     def api_visual_generate():
@@ -64,11 +99,15 @@ def register_visual_routes(
             if not user:
                 return jsonify({"success": False, "error": "请先登录"}), 401
 
+            ip = _get_visual_client_ip()
+            if not _check_visual_rate_limit(ip):
+                return jsonify({"success": False, "error": "请求过于频繁，请1分钟后再试"}), 429
+
             data = safe_get_json()
             if not data:
                 return jsonify({"success": False, "error": "无效请求"}), 400
 
-            topic = data.get("topic", "").strip()
+            topic = (data.get("topic") or "").strip()[:500]
             gen_type = data.get("type", "mindmap")
             layout = data.get("layout", "logic")
 
@@ -80,19 +119,26 @@ def register_visual_routes(
             if gen_type == "mindmap":
                 return _handle_mindmap(client, user, topic, layout, database, model_name)
             elif gen_type == "animation":
-                return _handle_animation(client, user, topic, database, model_name)
+                return _handle_animation(
+                    client, user, topic, database, model_name,
+                    qwen_image_api_key, image_search_provider, image_search_api_key
+                )
             else:
                 return jsonify({"success": False, "error": "未知的生成类型"}), 400
         except Exception as e:
-            import traceback
             traceback.print_exc()
-            return jsonify({"success": False, "error": f"生成失败: {str(e)}"}), 500
+            print(f"[api_visual_generate] 异常: {e}")
+            # 不暴露完整异常信息给前端，避免泄露敏感路径/API key
+            return jsonify({"success": False, "error": "生成失败，请稍后重试"}), 500
+
+    return app
 
 
 # --------------------------------------------
 # 思维导图生成（支持 3 种布局：逻辑图 / 组织结构图 / 矩形思维导图）
 # --------------------------------------------
 def _handle_mindmap(client, user, topic, layout, database, model_name):
+    # 修复 L2：下方各 layout 分支的 prompt 为超长硬编码字符串，建议后续抽取为外部模板文件或模块级常量以便维护
     if layout == "tree":
         layout_desc = "组织结构图/树状图"
         format_hint = """# 角色定义
@@ -142,39 +188,9 @@ def _handle_mindmap(client, user, topic, layout, database, model_name):
 6. 文字规范：节点内文字≤10字，动宾结构优先，禁止长句、解释性描述"""
         output_format = "mermaid"
 
-    prompt = _build_mindmap_prompt(topic, layout_desc, format_hint, layout)
-
-    response = client.chat.completions.create(
-        model=model_name,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,
-        max_tokens=2000
-    )
-    content = response.choices[0].message.content.strip()
-
-    content = re.sub(r'^```\w*\s*', '', content)
-    content = re.sub(r'\s*```$', '', content)
-
-    if output_format == "markdown" and not content.startswith('#'):
-        content = f"# {topic}\n" + content
-
-    try:
-        database.save_search_history(user['id'], f"可视化生成-思维导图({layout})：{topic}")
-    except Exception:
-        pass
-
-    return jsonify({
-        "success": True,
-        "type": "mindmap",
-        "layout": layout,
-        "format": output_format,
-        "content": content
-    })
-
-
-def _build_mindmap_prompt(topic, layout_desc, format_hint, layout):
-    if layout == "tree":
-        return f"""请为课程主题"{topic}"生成一个{layout_desc}的Mermaid流程图。
+    if output_format == "mermaid":
+        if layout == "tree":
+            prompt = f"""请为课程主题"{topic}"生成一个{layout_desc}的Mermaid流程图。
 
 {format_hint}
 
@@ -220,8 +236,8 @@ flowchart TD
 连接线规则：仅使用-->表示父子隶属关系，禁止曲线和虚线。
 至少3-5个核心节点，形成完整的层级结构。
 """
-    elif layout == "rect":
-        return f"""请为课程主题"{topic}"生成一个{layout_desc}的Mermaid流程图。
+        elif layout == "rect":
+            prompt = f"""请为课程主题"{topic}"生成一个{layout_desc}的Mermaid流程图。
 
 {format_hint}
 
@@ -275,8 +291,8 @@ flowchart TD
 连接线规则：仅使用-->表示父子关系，禁止曲线和虚线。
 至少3-5个核心节点，形成完整的层级结构。
 """
-    else:
-        return f"""请为课程主题"{topic}"生成一个{layout_desc}的Mermaid流程图。
+        else:
+            prompt = f"""请为课程主题"{topic}"生成一个{layout_desc}的Mermaid流程图。
 
 {format_hint}
 
@@ -302,139 +318,454 @@ flowchart LR
 连接线规则：使用-->表示主要路径，-.->表示备选路径。
 至少3-5个核心节点，形成完整的逻辑链。
 """
+    # 修复 M1：注：当前所有 layout 分支都设置 output_format='mermaid'，此 markdown 分支为死代码
+    # 若需支持 markdown 输出，需增加触发条件（如新增 layout 参数或配置开关）
+    else:  # markdown 分支（当前为死代码，保留以备扩展）
+        prompt = f"""请为课程主题"{topic}"生成一个{layout_desc}的Markdown思维导图，{format_hint}
+
+直接输出Markdown，不要其他解释，不要代码块包裹
+
+示例格式：
+# {topic}
+- 核心概念1
+  - 细节1
+  - 细节2
+- 核心概念2
+  - 细节1
+  - 细节2
+"""
+
+    response = client.chat.completions.create(
+        model=model_name,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3,
+        max_tokens=2000
+    )
+    # 修复 M2：AI 响应空校验，避免 choices 为空时抛 IndexError
+    if not response or not response.choices:
+        return jsonify({"success": False, "error": "AI 返回为空，请重试"}), 500
+    content = response.choices[0].message.content.strip()
+    if not content:
+        return jsonify({"success": False, "error": "AI 返回内容为空"}), 500
+
+    content = re.sub(r'^```\w*\s*', '', content)
+    content = re.sub(r'\s*```$', '', content)
+
+    if output_format == "markdown" and not content.startswith('#'):
+        content = f"# {topic}\n" + content
+
+    try:
+        database.save_search_history(user['id'], f"可视化生成-思维导图({layout})：{topic}")
+    except Exception:
+        pass
+
+    return jsonify({
+        "success": True,
+        "type": "mindmap",
+        "layout": layout,
+        "format": output_format,
+        "content": content
+    })
 
 
 # --------------------------------------------
-# 教学动画生成
+# 教学动画生成（支持 SVG+CSS 动画、Qwen 图片生成、图片搜索）
 # --------------------------------------------
-def _handle_animation(client, user, topic, database, model_name):
-    anim_prompt = f"""请为课程主题"{topic}"生成一个具有教学逻辑性的课堂演示动画HTML代码。
+
+# 修复 H1：AI 生成 HTML 清理不充分导致 XSS
+# 增强清理逻辑：覆盖更多危险标签/属性、on* 事件、javascript: 协议变形、CSS expression()、data:text/html 等
+# 注意：保留 <svg> 标签（教学动画依赖 SVG 绘制图形），但清理 SVG 内的危险子元素与外部引用
+def _sanitize_anim_html(html):
+    if not html:
+        return ''
+    # 1. 移除危险标签（含内容）—— 不含 svg，因动画功能依赖 SVG
+    dangerous_tags = ['script', 'iframe', 'object', 'embed', 'math', 'form', 'input', 'button', 'meta', 'link', 'base', 'foreignobject']
+    for tag in dangerous_tags:
+        html = re.sub(rf'<{tag}\b[^>]*>[\s\S]*?</{tag}>', '', html, flags=re.IGNORECASE)
+        html = re.sub(rf'<{tag}\b[^>]*/?>', '', html, flags=re.IGNORECASE)
+    # 2. 移除所有 on* 事件属性（支持双引号、单引号、无引号三种写法）
+    html = re.sub(r'\son\w+\s*=\s*"[^"]*"', '', html, flags=re.IGNORECASE)
+    html = re.sub(r"\son\w+\s*=\s*'[^']*'", '', html, flags=re.IGNORECASE)
+    html = re.sub(r'\son\w+\s*=\s*[^\s>]+', '', html, flags=re.IGNORECASE)
+    # 3. 移除 javascript: 协议（含制表符/换行符等变形）
+    html = re.sub(r'javascript:', '', html, flags=re.IGNORECASE)
+    html = re.sub(r'java\tscript:', '', html, flags=re.IGNORECASE)
+    html = re.sub(r'java\nscript:', '', html, flags=re.IGNORECASE)
+    # 4. 移除 CSS 中的 expression()（旧版 IE 可执行代码）
+    html = re.sub(r'expression\s*\([^)]*\)', '', html, flags=re.IGNORECASE)
+    # 5. 移除 data:text/html 协议（可能被用于注入 HTML）
+    html = re.sub(r'data:text/html', '', html, flags=re.IGNORECASE)
+    # 6. SVG 专用清理：移除外部引用（xlink:href / href 指向 javascript: 或 http(s):）
+    html = re.sub(r'\s(xlink:href|href)\s*=\s*"[^"]*"', lambda m: '' if re.search(r'(javascript|https?:)', m.group(0), re.IGNORECASE) else m.group(0), html, flags=re.IGNORECASE)
+    html = re.sub(r"\s(xlink:href|href)\s*=\s*'[^']*'", lambda m: '' if re.search(r'(javascript|https?:)', m.group(0), re.IGNORECASE) else m.group(0), html, flags=re.IGNORECASE)
+    return html
+
+
+def _handle_animation(
+    client, user, topic, database, model_name,
+    qwen_image_api_key="", image_search_provider="", image_search_api_key=""
+):
+    # 修复 L1：此函数较长，建议后续拆分为 _try_qwen_image、_search_images、_build_animation_prompt、_sanitize_anim_html 等子函数
+    # 当前保持单函数结构以降低改动风险
+    # Qwen 图片生成（如果配置了）
+    if qwen_image_api_key:
+        try:
+            import dashscope
+            from dashscope import ImageSynthesis
+
+            dashscope.api_key = qwen_image_api_key
+
+            anim_prompt = f"""教学主题"{topic}"的教学演示插图，用于课件展示，风格：教育类插画，清晰简洁，适合课堂教学使用"""
+
+            result = ImageSynthesis.call(
+                model=ImageSynthesis.Models.wanx_v1,
+                prompt=anim_prompt,
+                n=1,
+                size='1280*720'
+            )
+
+            # 修复 M4：注意 ImageSynthesis.call 在某些版本是异步的
+            # 若返回 PENDING，需要轮询 task_status 直到 SUCCEEDED 或 FAILED；当前直接回退到图片搜索
+            task_status = getattr(result.output, 'task_status', None) if result.output else None
+            if result.status_code == 200 and task_status == 'SUCCEEDED' and result.output.results:
+                image_url = result.output.results[0].url
+
+                safe_topic = html_escape(topic)
+                safe_url = html_escape(image_url)
+
+                anim_html = f'''<div class="classroom-animation" style="width:500px;height:320px;background:transparent;display:flex;align-items:center;justify-content:center;">
+                            <img src="{safe_url}" alt="{safe_topic}" style="max-width:100%;max-height:100%;border-radius:8px;" />
+                        </div>'''
+
+                try:
+                    database.save_search_history(user['id'], f"可视化生成-Qwen图像：{topic}")
+                except Exception:
+                    pass
+
+                return jsonify({
+                    "success": True,
+                    "type": "animation",
+                    "format": "html",
+                    "html": anim_html,
+                    "image_url": image_url
+                })
+            elif result.status_code == 200 and task_status == 'PENDING':
+                # TODO: 应轮询等待 task_status 变为 SUCCEEDED，当前直接回退到图片搜索
+                print("[visual_module] Qwen 任务未完成(PENDING)，回退到图片搜索")
+            else:
+                print(f"[visual_module] Qwen-Image生成失败: status={getattr(result, 'status_code', 'unknown')}, output={getattr(result, 'output', 'None')}")
+        except Exception as e:
+            print(f"[visual_module] Qwen-Image调用异常: {e}")
+
+    # 图片搜索（如果配置了）
+    search_images = []
+    image_search_error = None
+    if image_search_provider and REQUESTS_AVAILABLE:
+        try:
+            search_query = topic
+            if image_search_provider.lower() == "unsplash":
+                url = f"https://api.unsplash.com/search/photos?query={requests.utils.quote(search_query)}&per_page=3"
+                headers = {"Authorization": f"Client-ID {image_search_api_key}"} if image_search_api_key else {}
+                response = requests.get(url, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("results"):
+                        # 修复 M3：防御 KeyError，跳过无有效 URL 的图片
+                        for img in data["results"][:3]:
+                            if not isinstance(img, dict):
+                                continue
+                            urls = img.get("urls", {})
+                            regular_url = urls.get("regular")
+                            if regular_url:
+                                search_images.append(regular_url)
+                elif response.status_code == 401:
+                    image_search_error = "图片搜索 API Key 无效"
+                elif response.status_code == 429:
+                    image_search_error = "图片搜索请求频率超限"
+                else:
+                    image_search_error = f"图片搜索返回错误 {response.status_code}"
+            elif image_search_provider.lower() == "pexels":
+                url = f"https://api.pexels.com/v1/search?query={requests.utils.quote(search_query)}&per_page=3"
+                headers = {"Authorization": image_search_api_key} if image_search_api_key else {}
+                response = requests.get(url, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("photos"):
+                        # 修复 M3：防御 KeyError，跳过无有效 URL 的图片
+                        for img in data["photos"][:3]:
+                            if not isinstance(img, dict):
+                                continue
+                            src = img.get("src", {})
+                            medium_url = src.get("medium")
+                            if medium_url:
+                                search_images.append(medium_url)
+                elif response.status_code == 401:
+                    image_search_error = "图片搜索 API Key 无效"
+                elif response.status_code == 429:
+                    image_search_error = "图片搜索请求频率超限"
+                else:
+                    image_search_error = f"图片搜索返回错误 {response.status_code}"
+
+            if search_images:
+                print(f"[visual_module] 搜索到{len(search_images)}张图片")
+        except Exception as e:
+            image_search_error = f"图片搜索失败: {str(e)}"
+            print(f"[visual_module] 图片搜索失败: {e}")
+    elif image_search_provider and not REQUESTS_AVAILABLE:
+        image_search_error = "图片搜索功能不可用（requests 库未安装）"
+        print("[visual_module] 图片搜索跳过：requests 库未安装")
+
+    image_prompt = ""
+    if search_images:
+        image_prompt = f"""
+
+# 可用图片素材（在动画中合理使用这些图片）
+以下是搜索到的相关图片URL，请在动画中使用<img>标签引用：
+{chr(10).join([f"- 图片{i+1}: {url}" for i, url in enumerate(search_images)])}
+
+使用示例：<img src="图片URL" style="width:100px;height:auto;" />
+"""
+
+    # 特殊主题：勾股定理（精确几何演示）
+    # 修复 L2：下方动画 prompt 为超长硬编码字符串，建议后续抽取为外部模板文件或模块级常量以便维护
+    if "勾股定理" in topic:
+        anim_prompt = f"""请为数学课程"{topic}"生成一个科学准确的几何演示动画HTML代码。
+
+# 勾股定理可视化（a² + b² = c²）
+
+## 核心几何原理
+直角三角形两直角边分别为a和b，斜边为c，则 a² + b² = c²。
+动画必须清晰展示：两个直角边上的正方形面积之和等于斜边上的正方形面积。
+
+## 构图要求
+
+### 1. 直角三角形（底部中央）
+- 放置在坐标系第一象限
+- 直角顶点在原点(0,0)附近
+- 底边a沿x轴方向（蓝色）
+- 高边b沿y轴方向（红色）
+- 斜边c（黑色粗线）
+- 直角标记（小正方形或直角符号）
+
+### 2. 三个正方形（必须准确构造）
+- **a边上的正方形**：沿x轴，边长=a，蓝色填充，面积标注a²
+- **b边上的正方形**：沿y轴，边长=b，红色填充，面积标注b²
+- **c边上的正方形**：以斜边c为一条边的正方形，绿色填充，面积标注c²
+
+### 3. c边上正方形的几何构造（非常重要！必须按向量法构造）
+设斜边端点为A(x1,y1)和C(x2,y2)：
+- 向量 v = (x2-x1, y2-y1)
+- 边长 c = sqrt((x2-x1)² + (y2-y1)²)
+- 垂直向量 n = (-v.y, v.x) = (y1-y2, x2-x1)
+- 正方形四个顶点：A, C, C+n, A+n
+- 使用SVG <polygon>或<path>绘制
+- **禁止**使用"以中点为中心旋转的轴对齐正方形"的错误方法
+
+## 动画效果（CSS动画，无限循环）
+1. **面积闪烁**：三个正方形依次高亮闪烁（a²→b²→c²→a²），配合文字标注
+2. **面积累加**：a²和b²的面积块依次"移动"到c²位置，演示a²+b²=c²
+3. **勾股公式显示**：底部公式"a² + b² = c²"逐字显示或闪烁高亮
+4. **边长标注**：a、b、c三边长依次标注，箭头指示
+
+## 尺寸与布局
+- viewBox="0 0 500 320"
+- 直角三角形底边a=120px，高b=90px（3:4:5比例），斜边c=150px
+- 直角顶点坐标(80, 200)
+- 底边终点(200, 200)
+- 高边终点(80, 110)
+- 斜边端点(80, 110)到(200, 200)
+- 文字标注清晰，字体大小12-14px
+
+## 色彩规范
+- 底边a及正方形：蓝色 #3498DB
+- 高边b及正方形：红色 #E74C3C
+- 斜边c及正方形：绿色 #27AE60
+- 文字：深灰 #333
+- 背景：透明
+
+## 格式规范
+1. 输出纯HTML代码，包含在<div class="classroom-animation">中
+2. CSS放在<style>标签内，SVG直接内联
+3. 动画自动循环（animation-iteration-count: infinite）
+4. 背景透明
+5. 禁止使用JavaScript
+6. SVG必须使用精确的几何计算，不能有视觉误差
+
+## 几何验证检查
+1. 三个正方形的面积是否满足a²+b²=c²？
+2. c边上的正方形是否以斜边为一条边？（不是旋转的轴对齐正方形）
+3. 直角标记是否清晰？
+4. 公式"a² + b² = c²"是否准确标注？
+
+直接输出HTML代码，不要其他解释。
+""" + image_prompt
+    else:
+        anim_prompt = f"""请为理科课程主题"{topic}"生成一个具有教学逻辑性的课堂演示动画HTML代码。
 
 # 角色定义
-你是一位擅长用CSS动画演示教学逻辑的专业课件动画师。你的动画必须展示知识点的逻辑关系、过程演变或因果关系，帮助学生理解核心概念。
+你是一位擅长用SVG+CSS动画演示理科教学逻辑的专业课件动画师。你必须使用内联SVG绘制精细的教学图形，配合CSS动画展示知识点的逻辑关系、过程演变或因果关系。本动画主要服务于理科教学（物理、化学、数学、生物）。
 
 # 核心原则（必须遵守）
-- **动画必须具有教学逻辑性**，展示知识点之间的因果关系、演变过程、步骤流程或对比关系
-- 动画是教学演示工具，不是装饰品，必须能帮助学生理解"{topic}"的核心概念
-- 展示动态过程：如物理实验过程、化学反应变化、数学推导步骤、历史事件演变等
+- **必须使用SVG内联绘图**来绘制教学图形（分子结构、电路图、几何图形、实验装置、生物细胞等）
+- SVG图形必须精细、美观、专业，像教科书插图一样清晰
+- **动画必须具有教学逻辑性**，展示因果关系、演变过程、步骤流程或对比关系
+- 动画是理科教学演示工具，必须能帮助学生理解"{topic}"的核心概念
 - 逻辑清晰：从起点→过程→结果，或从问题→分析→结论的完整逻辑链条
-- 背景必须透明，便于嵌入PPT或其他场景
+- 背景必须透明，便于嵌入PPT
 
-# 教学逻辑动画类型（根据主题选择合适类型）
+# SVG绘图要求（非常重要！）
+- 所有的教学图形、实验装置、分子结构、几何图形等必须用内联<svg>标签绘制
+- SVG必须设置viewBox属性，推荐viewBox="0 0 500 320"
+- SVG元素使用stroke和fill设置颜色，stroke-width设置线宽
+- 用<circle>画圆、<rect>画矩形、<line>画直线、<path>画曲线、<polygon>/<polyline>画多边形
+- 用<text>添加标注文字，设置font-size和fill颜色
+- 用<g>标签分组，配合CSS动画让整个组动起来
+- 用<defs>和<marker>定义箭头等可复用元素
+- SVG图形要专业精细，线条流畅，颜色协调，不要画简陋的火柴人
 
-【类型1：过程演示型】
-适用于：实验过程、操作步骤、化学反应、生物生长等
-示例结构：起点状态 → 变化过程 → 最终状态（循环展示）
+# 理科SVG绘图示例（主要服务以下学科）
 
-【类型2：因果关系型】
-适用于：物理原理、历史事件、地理现象等
-示例结构：原因/条件 → 作用机制 → 结果/现象
+**物理**：用SVG画弹簧+方块（弹簧用<path>的正弦曲线）、斜面+方块、电路图（<rect>电阻+<line>导线+<circle>电池）、光的折射（<line>入射光+折射光+<rect>界面）、磁场线（<path>曲线+箭头）、波动图（<path>正弦波）
 
-【类型3：对比演示型】
-适用于：数学对比、概念辨析、正确vs错误等
-示例结构：左侧展示A，右侧展示B，动态对比差异
+**化学**：用SVG画分子结构（<circle>原子+<line>化学键）、烧杯试管（<rect>+<path>液面）、电子云（<circle>不同透明度的圆叠加）、反应方程式（<text>+上下标）、原子结构（<circle>原子核+<ellipse>电子轨道）
 
-【类型4：循环系统型】
-适用于：生态系统、水循环、能量循环、经济循环等
-示例结构：各环节依次激活，形成完整循环回路
+**数学**：用SVG画坐标系（<line>坐标轴+<text>刻度）、函数曲线（<path>贝塞尔曲线）、几何图形（<polygon>+标注）、数列变化（<rect>柱状图+动画）、导数/积分示意（<path>曲线+<rect>面积）
 
-【类型5：层级展开型】
-适用于：知识结构、分类体系、组织结构等
-示例结构：从中心向外逐层展开，展示层级关系
+**生物**：用SVG画细胞结构（<circle>细胞膜+<circle>细胞核+<rect>线粒体）、DNA双螺旋（<path>两条螺旋线+<line>碱基对）、光合作用（<circle>叶绿体+<path>光能+<text>产物）、细胞分裂（<circle>动态分裂过程）
 
-# 学科教学逻辑动画示例（必须模仿这种逻辑性）
+# 理科教学逻辑动画类型
 
-**物理/力学**：
-- 牛顿定律：小球受力→加速度变化→速度变化→位移变化（因果链）
-- 浮力原理：物体入水→排开水量→浮力产生→上浮/下沉（过程）
-- 能量守恒：动能→势能→动能的循环转换（循环系统）
+【类型1：过程演示型】适用于物理实验、化学反应、生物生长等
+示例结构：SVG绘制起点状态 → CSS动画过渡 → SVG绘制终态（循环）
+例：化学反应H₂+O₂→H₂O、细胞分裂过程、电路通电过程
 
-**化学**：
-- 化学反应：反应物分子→碰撞→化学键断裂重组→产物生成（过程）
-- 电解水：水电解→氢气上升→氧气上升→气泡对比（因果+对比）
+【类型2：因果关系型】适用于物理原理、化学规律、生物机制等
+示例结构：SVG绘制原因/条件 → 动画展示作用机制 → SVG绘制结果/现象
+例：力→加速度→速度变化、温度升高→分子运动加快→状态改变
 
-**数学/几何**：
-- 几何证明：已知条件→推导步骤→结论（逻辑链）
-- 函数变化：x变化→y变化→曲线移动（因果关系）
+【类型3：对比演示型】适用于概念辨析、正确vs错误、变量对比等
+示例结构：SVG左侧画A + SVG右侧画B → 动态高亮差异
+例：光合作用vs呼吸作用、串联vs并联电路、酸性vs碱性
 
-**生物**：
-- 光合作用：光能→叶绿体→化学反应→氧气+有机物（过程）
-- 细胞分裂：染色体复制→排列→分裂→两个子细胞（过程）
+【类型4：循环系统型】适用于物质循环、能量循环、生物循环等
+示例结构：SVG画各环节 → 依次高亮激活 → 形成循环回路
+例：碳循环、水循环、能量流动、细胞呼吸链
 
-**地理**：
-- 水循环：蒸发→凝结→降水→径流→蒸发（循环系统）
-- 板块运动：板块碰撞→挤压→山脉形成（因果关系）
-
-**历史**：
-- 事件演变：背景→导火索→事件爆发→结果→影响（逻辑链）
+【类型5：层级展开型】适用于知识结构、分类体系、公式推导等
+示例结构：SVG从中心向外逐层展开
+例：生物分类树、数学公式推导步骤、物质分类体系
 
 # 格式规范（必须100%遵守）
 1. 输出纯HTML代码，不要markdown代码块包裹
 2. 代码必须包含在 <div class="classroom-animation"> 中
-3. 所有CSS样式必须内联在 style 属性中或使用 <style> 标签放在div内
+3. CSS样式放在 <style> 标签内，SVG图形直接内联
 4. 动画必须是自动循环播放的（animation-iteration-count: infinite）
 5. 背景色必须设为透明（background: transparent）
-6. 尺寸限制在 500px 宽 × 320px 高以内
-7. 文字使用中文，简短明确（关键词≤6字），字体大小14-18px
-8. 禁止使用任何外部图片、字体、JS库资源
-9. 纯CSS动画，禁止使用JavaScript
-10. 动画元素必须标注教学含义（如"受力"、"加速"、"结果"等关键词）
+6. 整体尺寸限制在 500px 宽 × 320px 高以内
+7. 文字使用中文，简短明确（关键词≤6字），字体大小12-16px
+8. 可以使用提供的图片素材（通过<img>标签引用），禁止使用其他外部字体、JS库资源
+9. 禁止使用JavaScript，仅用CSS animation/transition实现动画
+10. SVG图形必须标注教学含义（如受力标注F、加速度标注a等）
 11. 逻辑链条必须清晰可见，用动画顺序或位置关系体现因果/过程
 
-# 正例格式锚点（必须模仿这种教学逻辑性）
+# 正例格式锚点
 
-【示例1：牛顿第二定律因果链】
-<div class="classroom-animation" style="...">
-  <div style="...">F(力)</div>  →动画→ <div style="...">a(加速度)</div> →动画→ <div style="...">v(速度)</div>
-  底部标注：F=ma
+【示例：牛顿第二定律因果链】
+<div class="classroom-animation" style="width:500px;height:320px;...">
+  <style>
+    @keyframes pushForce {{ from {{ transform: translateX(0); }} to {{ transform: translateX(30px); }} }}
+    @keyframes moveBlock {{ from {{ transform: translateX(0); }} to {{ transform: translateX(80px); }} }}
+    .force-arrow {{ animation: pushForce 2s ease-in-out infinite alternate; }}
+    .block {{ animation: moveBlock 2s ease-in-out infinite alternate; }}
+  </style>
+  <svg viewBox="0 0 500 320" width="500" height="320">
+    <!-- 地面 -->
+    <line x1="20" y1="220" x2="480" y2="220" stroke="#888" stroke-width="2"/>
+    <!-- 方块 -->
+    <g class="block">
+      <rect x="120" y="170" width="60" height="50" fill="#4A90D9" rx="4"/>
+      <text x="150" y="200" text-anchor="middle" fill="white" font-size="14">m</text>
+    </g>
+    <!-- 力的箭头 -->
+    <g class="force-arrow">
+      <line x1="60" y1="195" x2="115" y2="195" stroke="#E74C3C" stroke-width="3" marker-end="url(#arrowhead)"/>
+      <text x="85" y="185" text-anchor="middle" fill="#E74C3C" font-size="14" font-weight="bold">F</text>
+    </g>
+    <!-- 箭头定义 -->
+    <defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#E74C3C"/></marker></defs>
+    <!-- 公式标注 -->
+    <text x="250" y="280" text-anchor="middle" fill="#333" font-size="16" font-weight="bold">F = ma</text>
+  </svg>
 </div>
 
-【示例2：水循环系统】
+【示例：化学反应过程】
 <div class="classroom-animation" style="...">
-  蒸发(上) →动画→ 凝结(右上) →动画→ 降水(右) →动画→ 径流(下) →循环回蒸发
-</div>
-
-【示例3：化学反应过程】
-<div class="classroom-animation" style="...">
-  H₂O分子 →动画分解→ H₂ + O₂ →动画→ 气泡上升对比
+  <style>
+    @keyframes bond {{ from {{ opacity:1; }} to {{ opacity:0; }} }}
+    @keyframes newBond {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
+    .old-bond {{ animation: bond 3s ease-in-out infinite; }}
+    .new-bond {{ animation: newBond 3s ease-in-out 1.5s infinite; }}
+  </style>
+  <svg viewBox="0 0 500 320" width="500" height="320">
+    <g class="old-bond">
+      <circle cx="150" cy="160" r="25" fill="#E74C3C"/><text x="150" y="165" text-anchor="middle" fill="white" font-size="14">H₂</text>
+      <circle cx="350" cy="160" r="25" fill="#3498DB"/><text x="350" y="165" text-anchor="middle" fill="white" font-size="14">O₂</text>
+    </g>
+    <text x="250" y="165" text-anchor="middle" fill="#333" font-size="20">→</text>
+    <g class="new-bond">
+      <circle cx="250" cy="160" r="30" fill="#2ECC71"/><text x="250" y="165" text-anchor="middle" fill="white" font-size="14">H₂O</text>
+    </g>
+    <text x="250" y="270" text-anchor="middle" fill="#333" font-size="14">2H₂+O₂→2H₂O</text>
+  </svg>
 </div>
 
 # 反例（禁止生成）
-- 纯装饰性动画：花瓣飘落、星星闪烁（无教学意义）
-- 随机动画：与知识点无关的有趣元素
-- 纯文字静态展示，没有动画效果
-- 动画过于复杂，逻辑链条不清晰
-- 包含JavaScript代码
-- 背景不透明
-- 无法让学生理解"{topic}"的核心逻辑
+- 用CSS div方块画教学图形（× 必须用SVG画精细图形）
+- 纯装饰性动画：花瓣飘落、星星闪烁（× 无教学意义）
+- 简陋火柴人/粗糙贴图式图形（× SVG要精细专业）
+- 纯文字静态展示（× 必须有动画效果）
+- 包含JavaScript代码（× 纯CSS动画）
+- 背景不透明（× 必须透明）
+- 使用未提供的外部图片URL（× 只能使用提供的图片素材）
+- 文科类动画（× 本模块专注理科：物理/化学/数学/生物）
 
-# 动画设计检查清单（生成前必须确认）
-1. 这个动画展示了"{topic}"的什么核心逻辑？
-2. 学生看完能理解哪个知识点？
-3. 动画元素是否标注了教学含义？
-4. 逻辑链条是否清晰（起点→过程→结果）？
+# 动画设计检查清单
+1. 是否使用了SVG绘制精细教学图形？
+2. 这个动画展示了"{topic}"的什么理科核心逻辑？
+3. 学生看完能理解哪个知识点？
+4. SVG图形是否专业清晰，像教科书插图？
+5. 逻辑链条是否清晰（起点→过程→结果）？
 
 直接输出HTML代码，不要其他解释。
-"""
+""" + image_prompt
 
     response = client.chat.completions.create(
         model=model_name,
         messages=[{"role": "user", "content": anim_prompt}],
         temperature=0.7,
-        max_tokens=2500
+        max_tokens=4096
     )
+    # 修复 M2：AI 响应空校验，避免 choices 为空时抛 IndexError
+    if not response or not response.choices:
+        return jsonify({"success": False, "error": "AI 返回为空，请重试"}), 500
     anim_html = response.choices[0].message.content.strip()
+    if not anim_html:
+        return jsonify({"success": False, "error": "AI 返回内容为空"}), 500
 
     anim_html = re.sub(r'^```\w*\s*', '', anim_html)
     anim_html = re.sub(r'\s*```$', '', anim_html)
 
+    # 修复 H1：调用增强版 HTML 清理函数，防御 XSS（覆盖危险标签、on* 事件、javascript: 变形、expression()、data:text/html 等）
+    anim_html = _sanitize_anim_html(anim_html)
+
     if 'classroom-animation' not in anim_html:
-        anim_html = f'<div class="classroom-animation" style="width:500px;height:320px;background:transparent;display:flex;align-items:center;justify-content:center;color:#333;font-size:18px;border:2px dashed #ccc;border-radius:12px;">{topic}</div>'
+        safe_topic = html_escape(topic)
+        anim_html = f'<div class="classroom-animation" style="width:500px;height:320px;background:transparent;display:flex;align-items:center;justify-content:center;color:#333;font-size:18px;border:2px dashed #ccc;border-radius:12px;">{safe_topic}</div>'
 
     try:
         database.save_search_history(user['id'], f"可视化生成-教学动画：{topic}")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[visual_module] 保存搜索历史失败: {e}")
 
     return jsonify({
         "success": True,

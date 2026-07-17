@@ -1,19 +1,23 @@
 # ============================================
-# 备课助手 Web 版 - 用户登录版
+# 备课助手 Web 版 - 用户登录版 4.0
 # 启动: python web_app.py
-# 访问: http://localhost:5024
+# 访问: http://localhost:6000
 # ============================================
 
 import re
 import os
 import sys
 import yaml
+import csv
+import io
+import datetime
 import random
 import sqlite3
 import threading
 import queue
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_file, send_from_directory, Response, redirect, url_for, make_response
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, send_file, Response, redirect, url_for, make_response
 from openai import OpenAI
 from docx import Document
 from docx.shared import Pt, RGBColor
@@ -26,9 +30,15 @@ from pptx.enum.shapes import MSO_SHAPE
 from io import BytesIO
 import time
 import json
+import uuid
+import hashlib
 
 # 导入数据库模块
 import database
+import supabase_client
+import template_filler
+from exam_module import register_exam_routes
+from visual_module import register_visual_routes
 
 def get_base_dir():
     if getattr(sys, 'frozen', False):
@@ -63,7 +73,7 @@ API_KEY = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
 BASE_URL = cfg.get("base_url") or os.environ.get("DEEPSEEK_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "https://api.deepseek.com/v1"
 MODEL = cfg.get("model", "deepseek-chat")
 TEMP = cfg.get("temperature", 0.7)
-MAX_TOKENS = cfg.get("max_tokens", 3072)
+MAX_TOKENS = cfg.get("max_tokens", 8192)
 MAX_HISTORY = cfg.get("max_history", 6)
 OUTPUT_DIR = cfg.get("output_dir", ".")
 if not os.path.isabs(OUTPUT_DIR):
@@ -79,6 +89,17 @@ os.makedirs(HISTORY_DIR, exist_ok=True)
 VISUAL_OUTPUT_DIR = DATA_DIR / "output"
 os.makedirs(str(VISUAL_OUTPUT_DIR), exist_ok=True)
 
+SUPABASE_URL = cfg.get("supabase_url") or os.environ.get("SUPABASE_URL")
+SUPABASE_ANON_KEY = cfg.get("supabase_anon_key") or os.environ.get("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_KEY = cfg.get("supabase_service_role_key") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+
+if SUPABASE_URL and SUPABASE_ANON_KEY:
+    supabase_client.init_supabase(SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY)
+    if not SUPABASE_SERVICE_KEY:
+        print("Warning: supabase_service_role_key not configured. Admin features will not work.")
+else:
+    print("Warning: Supabase not configured. User authentication may not work.")
+
 QWEN_IMAGE_API_KEY = cfg.get("qwen_image_api_key") or os.environ.get("QWEN_IMAGE_API_KEY") or ""
 QWEN_IMAGE_MODEL = cfg.get("qwen_image_model", "qwen-image-plus")
 
@@ -88,6 +109,116 @@ IMAGE_SEARCH_API_KEY = cfg.get("image_search_api_key") or os.environ.get("IMAGE_
 ALLOWED_UPLOAD_EXT = {'.md', '.txt', '.docx', '.xlsx', '.csv', '.pdf'}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
 MAX_TEXT_CHARS = 30000  # 单文件最多送3万字符给AI
+
+ADMIN_CREDENTIALS = {}
+ADMIN_TOKEN_VALUE = str(uuid.uuid4())
+
+import hmac
+import secrets
+
+def _get_password_salt() -> bytes:
+    salt = os.environ.get('PASSWORD_SALT')
+    if not salt:
+        print("[警告] 未设置 PASSWORD_SALT 环境变量，使用随机盐值（重启后旧密码将失效）")
+        return secrets.token_bytes(32)
+    return salt.encode('utf-8')
+
+_PASSWORD_SALT = _get_password_salt()
+
+def _hash_password(pwd: str) -> str:
+    return hashlib.pbkdf2_hmac('sha256', pwd.encode('utf-8'), _PASSWORD_SALT, 100000).hex()
+
+def _verify_admin_password(username: str, password: str) -> bool:
+    if username not in ADMIN_CREDENTIALS:
+        return False
+    stored_hash = ADMIN_CREDENTIALS[username]
+    return hmac.compare_digest(_hash_password(password), stored_hash)
+
+def _set_admin_password(username: str, password: str):
+    ADMIN_CREDENTIALS[username] = _hash_password(password)
+
+_CSRF_TOKENS = {}
+_CSRF_LOCK = threading.Lock()
+_CSRF_EXEMPT = {
+    '/login', '/register', '/api/auth/session', '/api/auth/get-csrf-token',
+    '/api/chat', '/api/chat/stream', '/api/exam/generate', '/api/exam/export/docx', '/api/exam/export/pdf',
+    '/api/visual/generate', '/api/save_blob',
+    '/api/lesson_plan/template_upload', '/api/lesson_plan/template_fill', '/api/lesson_plan/template_confirm', '/api/lesson_plan/template_generate',
+    '/api/upload', '/api/download', '/api/avatar',
+    '/api/profile/avatar', '/api/profile/username',
+    '/admin/api/admin/change_password'
+}
+
+def _generate_csrf_token(user_id):
+    token = secrets.token_hex(32)
+    with _CSRF_LOCK:
+        _CSRF_TOKENS[token] = {'user_id': user_id, 'created_at': time.time()}
+    return token
+
+def _validate_csrf_token(token, user_id):
+    if not token:
+        return False
+    with _CSRF_LOCK:
+        entry = _CSRF_TOKENS.get(token)
+        if not entry:
+            return False
+        if entry['user_id'] != user_id:
+            return False
+        if time.time() - entry['created_at'] > 3600:
+            del _CSRF_TOKENS[token]
+            return False
+        del _CSRF_TOKENS[token]
+        return True
+
+def _check_csrf():
+    if request.path in _CSRF_EXEMPT:
+        return True
+    if request.method != 'POST':
+        return True
+    user = get_current_user()
+    if not user:
+        return True
+    token = request.headers.get('X-CSRF-Token') or request.form.get('_csrf_token')
+    if not _validate_csrf_token(token, user['id']):
+        return False
+    return True
+
+
+@app.before_request
+def csrf_protect():
+    if not _check_csrf():
+        print(f"[CSRF] Blocked request: path={request.path}, method={request.method}, user={get_current_user() is not None}")
+        return jsonify({"error": "请求无效"}), 403
+
+_env_admin_user = os.environ.get('ADMIN_USERNAME', 'LSW')
+_env_admin_pass = os.environ.get('ADMIN_PASSWORD', 'LSWYYDS')
+# 启动时读取持久化的管理员用户名（若个人中心修改过则覆盖环境变量默认值）
+try:
+    _stored_admin_username = database.get_local_admin_username('admin')
+    if _stored_admin_username:
+        _env_admin_user = _stored_admin_username
+except Exception as _e:
+    print(f"[startup] 读取持久化管理员用户名失败，使用默认值: {_e}")
+if not os.environ.get('ADMIN_PASSWORD'):
+    print("=" * 60)
+    print(f"使用默认管理员账号：")
+    print(f"用户名：{_env_admin_user}")
+    print(f"密码：{_env_admin_pass}")
+    print("如需修改密码，请设置环境变量 ADMIN_PASSWORD")
+    print("=" * 60)
+_set_admin_password(_env_admin_user, _env_admin_pass)
+
+TEMPLATE_CACHE = {}
+TEMPLATE_CACHE_TTL = 30 * 60  # 30分钟
+TEMPLATE_CACHE_LOCK = threading.Lock()
+
+
+def cleanup_template_cache():
+    now = time.time()
+    with TEMPLATE_CACHE_LOCK:
+        expired = [k for k, v in TEMPLATE_CACHE.items() if now - v.get('timestamp', 0) > TEMPLATE_CACHE_TTL]
+        for k in expired:
+            del TEMPLATE_CACHE[k]
 
 
 def safe_get_json():
@@ -517,22 +648,43 @@ SYSTEM_PROMPT = """你是专业的「AI 备课助手」，服务对象是中小�
 # 存会话（内存缓存 + 数据库持久化）
 # 用 user_id:sesssion_id 作为 key，确保用户隔离
 sessions: dict[str, list[dict]] = {}
+# 会话字典并发访问锁，避免多请求/多线程同时修改导致历史错乱
+sessions_lock = threading.Lock()
 
 def _session_key(user_id, session_id):
     return f"{user_id}:{session_id}"
 
 def get_current_user():
+    admin_token = request.cookies.get('admin_token')
+    if admin_token and admin_token == ADMIN_TOKEN_VALUE:
+        admin_user = request.cookies.get('admin_user', 'LSW')
+        avatar_url = database.get_local_avatar('admin')
+        # 优先使用数据库中持久化的用户名（支持个人中心修改并跨重启保留）
+        stored_username = database.get_local_admin_username('admin')
+        if stored_username:
+            admin_user = stored_username
+        return {
+            'id': 'admin',
+            'username': admin_user,
+            'email': 'admin@example.com',
+            'is_admin': True,
+            'avatar_url': avatar_url
+        }
+
     token = request.cookies.get('session_token')
     if token:
-        return database.get_user_by_token(token)
+        user = database.get_user_by_token(token)
+        if user:
+            user['is_admin'] = False
+        return user
     return None
 
 def trim_history(messages):
     if not messages or len(messages) <= MAX_HISTORY + 1:
-        return messages
+        return list(messages)
     system_msg = messages[0]
     recent = messages[-(MAX_HISTORY):]
-    return [system_msg] + recent
+    return [system_msg] + list(recent)
 
 def markdown_to_word(markdown_text: str, title: str = "教案") -> BytesIO:
     doc = Document()
@@ -581,14 +733,19 @@ def markdown_to_word(markdown_text: str, title: str = "教案") -> BytesIO:
         elif line.startswith('#### '):
             doc.add_heading(line[5:], level=4)
         elif '**' in line:
-            parts = line.split('**')
-            para = doc.add_paragraph()
-            for i, part in enumerate(parts):
-                if i % 2 == 1:
-                    run = para.add_run(part)
-                    run.bold = True
-                else:
-                    para.add_run(part)
+            count = line.count('**')
+            if count % 2 != 0:
+                # 奇数个 **，无法配对，按普通文本处理
+                doc.add_paragraph(line)
+            else:
+                parts = line.split('**')
+                para = doc.add_paragraph()
+                for i, part in enumerate(parts):
+                    if i % 2 == 1:
+                        run = para.add_run(part)
+                        run.bold = True
+                    else:
+                        para.add_run(part)
         elif line.strip().startswith('- '):
             doc.add_paragraph(line[2:], style='List Bullet')
         elif line.strip().startswith('* '):
@@ -728,6 +885,9 @@ def parse_ppt_outline(markdown_text):
             prev_t, prev_items = merged[-1]
             prev_items.append((0, stitle))
             merged[-1] = (prev_t, prev_items)
+        elif not items and not merged:
+            # 首个 section 无内容且无前置可合并项，跳过避免出现空白页
+            continue
         else:
             merged.append((stitle, items))
     raw_sections = merged
@@ -759,7 +919,8 @@ def _split_overflow(items, max_items=7):
     result = []
     cur = []
     for lvl, text in items:
-        if len(cur) >= max_items and lvl == 0:
+        # 在顶层（lvl==0）边界分页，或当子级项目累计已达上限时强制分页
+        if len(cur) >= max_items and (lvl == 0 or len(cur) >= max_items + 3):
             result.append(cur)
             cur = []
         cur.append((lvl, text))
@@ -971,14 +1132,15 @@ class PptBuilder:
                 ct = stitle if ci == 0 else f"{stitle}（续{ci}）"
                 expanded.append((ct, chunk))
 
-        total = len(expanded) + 1
+        # 总页数 = 封面(1) + 内容页数 + 结尾页(1)
+        total = len(expanded) + 2
         for i, (stitle, items) in enumerate(expanded):
             is_summary = any(k in stitle for k in
                              ['总结', '小结', '结语', '谢谢', '感谢', 'CTA', '行动'])
             self.content(stitle, items, i + 2, total, dark=is_summary)
 
         if not expanded:
-            self.content("内容概览", [(0, "暂无具体内容")], 2, 2)
+            self.content("内容概览", [(0, "暂无具体内容")], 2, 3, dark=False)
 
         self.ending()
 
@@ -994,7 +1156,8 @@ def _parse_kv(items):
         clean = _strip_md(text).strip()
         if not clean:
             continue
-        for sep in ['：', ':', '-', '—']:
+        # 优先匹配中文冒号 / 英文冒号（强键值分隔符）
+        for sep in ['：', ':']:
             if sep in clean:
                 parts = clean.split(sep, 1)
                 if len(parts) == 2:
@@ -1003,6 +1166,14 @@ def _parse_kv(items):
                     if key and val:
                         kv[key] = val
                     break
+        else:
+            # 仅当 key 为纯中文/字母标签（不含数字+空格组合，避免 "日期 2024" 被误当 key）
+            m = re.match(r'^([\u4e00-\u9fa5A-Za-z]{1,8})\s*[—-]\s*(.+)$', clean)
+            if m:
+                key = m.group(1).strip()
+                val = m.group(2).strip()
+                if key and val:
+                    kv[key] = val
     return kv
 
 
@@ -1011,8 +1182,9 @@ def markdown_to_ppt(markdown_text, title="课件"):
     if not title_main:
         title_main = title
     if not slides:
-        slides = [(title_main or title,
-                   [(0, t) for t in markdown_text.split('\n') if t.strip()])]
+        # 兜底：将所有非空行作为单个 section 的要点，并通过 _split_overflow 自动分页
+        all_items = [(0, t) for t in markdown_text.split('\n') if t.strip()]
+        slides = [(title_main or title, all_items)]
 
     cover_data = {}
     content_slides = []
@@ -1041,24 +1213,46 @@ def generate_ppt_files(reply_text, user_id=None):
     base_dir = get_user_output_dir(user_id)
     ppt_blocks = re.findall(r"\[PPT:\s*([^\]]+)\](.*?)\[/PPT\]", reply_text, re.DOTALL)
     saved_ppts = []
+    failed_ppts = []
     for filename, outline in ppt_blocks:
         filename = filename.strip()
         if not filename.lower().endswith(".pptx"):
             filename += ".pptx"
-        safe_name = re.sub(r'[<>:"/\\|?*]', '', filename)
+        safe_name = _sanitize_filename(filename)
+        if not safe_name.lower().endswith(".pptx"):
+            safe_name += ".pptx"
+        filepath = os.path.join(base_dir, safe_name)
+        if not filepath.startswith(os.path.abspath(base_dir)):
+            continue
+        ppt_buffer = None
         try:
             title = os.path.splitext(safe_name)[0]
             ppt_buffer = markdown_to_ppt(outline, title=title)
-            filepath = os.path.join(base_dir, safe_name)
             with open(filepath, "wb") as f:
                 f.write(ppt_buffer.getvalue())
             saved_ppts.append(safe_name)
         except Exception as e:
-            print(f"[PPT] 生成失败 {safe_name}: {e}")
+            print(f"[PPT] 生成失败 {safe_name}")
+            failed_ppts.append({"filename": safe_name, "error": "生成失败"})
+        finally:
+            if ppt_buffer is not None:
+                try:
+                    ppt_buffer.close()
+                except Exception:
+                    pass
+            try:
+                if os.path.exists(filepath) and os.path.getsize(filepath) == 0:
+                    os.remove(filepath)
+            except Exception:
+                pass
     display = reply_text
     if ppt_blocks:
-        display = re.sub(r"\[PPT:\s*[^\]]+\]", "", display)
-        display = re.sub(r"\[/PPT\]", "", display)
+        display = re.sub(r"\[PPT:\s*[^\]]+\](.*?)\[/PPT\]", "", display, flags=re.DOTALL)
+    if failed_ppts:
+        notice_lines = ["\n\n> ⚠️ 以下 PPT 生成失败："]
+        for fp in failed_ppts:
+            notice_lines.append(f"> - {fp['filename']}")
+        display = display + "".join(notice_lines)
     return saved_ppts, display
 
 
@@ -1073,27 +1267,30 @@ def auto_wrap_and_save_fallback(user_message: str, ai_reply: str, user_id):
     if has_file or has_ppt:
         return [], [], ai_reply
 
-    text = (user_message or "") + " " + (ai_reply or "")
-    lower = text.lower()
+    # 修复 L1：已删除未使用的 text / lower 死代码（下方仅使用 reply_text / lower_reply）
 
     safe_title = _re.sub(r'[<>:"/\\|?*]', '', (user_message or "AI生成内容").strip())[:20] or "AI生成内容"
     ts = _time.strftime("%Y%m%d_%H%M%S")
 
-    if ("ppt" in lower) or ("课件" in text) or ("幻灯片" in text):
+    # 仅根据 AI 回复内容判断文件类型，避免用户消息干扰
+    reply_text = (ai_reply or "")
+    lower_reply = reply_text.lower()
+
+    if ("ppt" in lower_reply) or ("课件" in reply_text) or ("幻灯片" in reply_text):
         filename = f"课件_{safe_title}_{ts}.pptx"
         wrapped = f"[PPT:{filename}]\n{ai_reply.strip()}\n[/PPT]"
         saved_ppts, display = generate_ppt_files(wrapped, user_id)
         return [], saved_ppts, display
 
-    if "作业" in text and ("分析" in text or "批改" in text or "错因" in text or "讲评" in text):
+    if "作业" in reply_text and ("分析" in reply_text or "批改" in reply_text or "错因" in reply_text or "讲评" in reply_text):
         fn = f"作业分析_{safe_title}_{ts}.md"
-    elif "教案" in text or "教学设计" in text or "说课稿" in text or "教学过程" in text:
+    elif "教案" in reply_text or "教学设计" in reply_text or "说课稿" in reply_text or "教学过程" in reply_text:
         fn = f"教案_{safe_title}_{ts}.md"
-    elif "习题" in text or "练习" in text or "试卷" in text or "测试题" in text or ("题" in text and "答案" in text):
+    elif "习题" in reply_text or "练习" in reply_text or "试卷" in reply_text or "测试题" in reply_text or ("题" in reply_text and "答案" in reply_text):
         fn = f"习题_{safe_title}_{ts}.md"
-    elif ("讲解" in text and ("纲要" in text or "讲稿" in text or "逐页" in text)) or "说课稿" in text:
+    elif ("讲解" in reply_text and ("纲要" in reply_text or "讲稿" in reply_text or "逐页" in reply_text)) or "说课稿" in reply_text:
         fn = f"讲解纲要_{safe_title}_{ts}.md"
-    elif "复习" in text or "提纲" in text or "知识点总结" in text or "知识体系" in text:
+    elif "复习" in reply_text or "提纲" in reply_text or "知识点总结" in reply_text or "知识体系" in reply_text:
         fn = f"复习提纲_{safe_title}_{ts}.md"
     else:
         fn = f"备课资料_{safe_title}_{ts}.md"
@@ -1109,6 +1306,19 @@ def auto_wrap_and_save_fallback(user_message: str, ai_reply: str, user_id):
     return [fn], [], ai_reply
 
 
+def _sanitize_filename(filename):
+    filename = str(filename).strip()
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+    filename = re.sub(r'\.\.+', '.', filename)
+    filename = filename.strip('.')
+    win_reserved = {'CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'}
+    if filename.upper() in win_reserved:
+        filename = filename + "_file"
+    if len(filename) > 200:
+        filename = filename[:200]
+    return filename or "unnamed"
+
+
 def extract_and_save_all(user_message, reply_text, user_id):
     """统一处理 AI 回复：解析文件块 + 生成 PPT + 兜底保存，返回(saved_files, saved_ppts, display_for_chat)"""
     user_output_dir = get_user_output_dir(user_id)
@@ -1116,14 +1326,20 @@ def extract_and_save_all(user_message, reply_text, user_id):
     saved_files = []
     files = re.findall(r"\[文件:\s*([^\]]+)\](.*?)\[/文件\]", reply_text, re.DOTALL)
     for filename, content in files:
-        filepath = os.path.join(user_output_dir, filename)
+        safe_name = _sanitize_filename(filename)
+        filepath = os.path.join(user_output_dir, safe_name)
+        if not filepath.startswith(os.path.abspath(user_output_dir)):
+            continue
         clean = content.strip()
         if clean.startswith("```"):
             clean = re.sub(r"^```\w*\s*\n", "", clean)
             clean = re.sub(r"\n```\s*$", "", clean)
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(clean)
-        saved_files.append(filename)
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(clean)
+            saved_files.append(safe_name)
+        except Exception:
+            pass
 
     display = reply_text
     if files:
@@ -1152,28 +1368,135 @@ def index():
         return redirect(url_for('login'))
     return render_template("index.html", model=MODEL, username=user['username'])
 
+_login_attempts = {}
+_login_lock = threading.Lock()
+
+def _get_client_ip():
+    # 修复 S7：使用 ipaddress 模块完整判断私有/回环地址，仅信任非私有的 X-Forwarded-For 首个 IP，
+    # 防止客户端伪造 X-Forwarded-For 绕过限流
+    import ipaddress
+    if request:
+        forwarded = request.headers.get('X-Forwarded-For')
+        if forwarded:
+            first_ip = forwarded.split(',')[0].strip()
+            try:
+                ip_obj = ipaddress.ip_address(first_ip)
+                if not ip_obj.is_private:
+                    return first_ip
+            except ValueError:
+                pass
+        return request.remote_addr or '127.0.0.1'
+    return '127.0.0.1'
+
+def _check_login_rate_limit(ip: str, username: str) -> bool:
+    now = time.time()
+    ip_key = f"ip:{ip}"
+    user_key = f"user:{username}"
+    with _login_lock:
+        if ip_key not in _login_attempts:
+            _login_attempts[ip_key] = []
+        if user_key not in _login_attempts:
+            _login_attempts[user_key] = []
+        
+        ip_attempts = [t for t in _login_attempts[ip_key] if now - t < 900]
+        user_attempts = [t for t in _login_attempts[user_key] if now - t < 900]
+        
+        _login_attempts[ip_key] = ip_attempts
+        _login_attempts[user_key] = user_attempts
+        
+        if len(_login_attempts) > 1000:
+            expired_keys = [k for k, v in _login_attempts.items() if not v]
+            for k in expired_keys:
+                del _login_attempts[k]
+        
+        if len(ip_attempts) >= 15 or len(user_attempts) >= 5:
+            return False
+        return True
+
+def _record_login_failure(ip: str, username: str):
+    now = time.time()
+    ip_key = f"ip:{ip}"
+    user_key = f"user:{username}"
+    with _login_lock:
+        if ip_key not in _login_attempts:
+            _login_attempts[ip_key] = []
+        if user_key not in _login_attempts:
+            _login_attempts[user_key] = []
+        _login_attempts[ip_key].append(now)
+        _login_attempts[user_key].append(now)
+
+def _clear_login_failures(ip: str, username: str):
+    ip_key = f"ip:{ip}"
+    user_key = f"user:{username}"
+    with _login_lock:
+        _login_attempts.pop(ip_key, None)
+        _login_attempts.pop(user_key, None)
+
+def _set_auth_cookies(response, session_token, is_admin=False, admin_username=None):
+    max_age = 86400 * 7
+    is_secure = os.environ.get('FLASK_ENV') == 'production'
+    response.set_cookie('session_token', session_token, httponly=True, secure=is_secure,
+                        samesite='Lax', max_age=max_age)
+    if is_admin and admin_username:
+        response.set_cookie('admin_token', ADMIN_TOKEN_VALUE, httponly=True, secure=is_secure,
+                            samesite='Lax', max_age=86400)
+        response.set_cookie('admin_user', admin_username, httponly=True, secure=is_secure,
+                            samesite='Lax', max_age=86400)
+
+def _clear_auth_cookies(response):
+    for cookie_name in ['session_token', 'admin_token', 'admin_user']:
+        response.set_cookie(cookie_name, '', expires=0, samesite='Lax')
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        data = safe_get_json()
+        data = request.get_json(silent=True)
+        if data is None:
+            data = request.form
         if not data:
             return jsonify({"error": "无效的请求格式"}), 400
         username = data.get("username")
         password = data.get("password")
-        
+        ip = _get_client_ip()
+
         if not username or not password:
             return jsonify({"error": "用户名和密码不能为空"}), 400
-        
-        user = database.authenticate_user(username, password)
+
+        if not _check_login_rate_limit(ip, username):
+            return jsonify({"error": "登录尝试过于频繁，请5分钟后再试"}), 429
+
+        if _verify_admin_password(username, password):
+            _clear_login_failures(ip, username)
+            access_token = database.generate_session_token()
+            response = jsonify({"status": "success", "username": username, "is_admin": True})
+            _set_auth_cookies(response, access_token, is_admin=True, admin_username=username)
+            return response
+
+        login_email = username
+        if '@' not in username:
+            local_email = database.get_email_by_username(username)
+            if local_email:
+                login_email = local_email
+            else:
+                email_result = supabase_client.get_email_by_username(username)
+                if not email_result["success"]:
+                    _record_login_failure(ip, username)
+                    return jsonify({"error": "用户名或密码错误"}), 401
+                login_email = email_result["email"]
+
+        user = database.authenticate_user(login_email, password)
         if user:
-            token = database.generate_session_token()
-            database.set_session_token(user['id'], token)
-            response = jsonify({"status": "success", "username": user['username']})
-            response.set_cookie('session_token', token, httponly=True, secure=False, max_age=86400*7)
+            _clear_login_failures(ip, username)
+            access_token = user.get('access_token') or database.generate_session_token()
+            csrf_token = _generate_csrf_token(user['id'])
+            response = jsonify({"status": "success", "username": user['username'], "is_admin": False, "csrf_token": csrf_token})
+            _set_auth_cookies(response, access_token, is_admin=False)
             return response
         else:
+            _record_login_failure(ip, username)
             return jsonify({"error": "用户名或密码错误"}), 401
-    
+
     return render_template("login.html")
 
 @app.route("/register", methods=["GET", "POST"])
@@ -1189,59 +1512,341 @@ def register():
         if not username or not password:
             return jsonify({"error": "用户名和密码不能为空"}), 400
         
-        if len(password) < 6:
-            return jsonify({"error": "密码长度至少6位"}), 400
+        if len(password) < 8:
+            return jsonify({"error": "密码长度至少8位"}), 400
+        
+        if not re.search(r'[A-Za-z]', password) or not re.search(r'[0-9]', password):
+            return jsonify({"error": "密码需包含字母和数字"}), 400
+
+        if not email or not re.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', email):
+            return jsonify({"error": "请输入有效的邮箱地址"}), 400
+
+        if len(username) < 2 or len(username) > 20:
+            return jsonify({"error": "用户名长度需在2-20位之间"}), 400
+        
+        if not re.match(r'^[a-zA-Z0-9_\u4e00-\u9fa5]+$', username):
+            return jsonify({"error": "用户名只允许字母、数字、下划线和中文"}), 400
         
         success = database.register_user(username, password, email)
         if success:
-            user = database.authenticate_user(username, password)
-            if user:
-                token = database.generate_session_token()
-                database.set_session_token(user['id'], token)
-                response = jsonify({"status": "success", "username": user['username']})
-                response.set_cookie('session_token', token, httponly=True, secure=False, max_age=86400*7)
-                return response
+            return jsonify({"status": "success"})
         else:
-            return jsonify({"error": "用户名已存在"}), 409
+            return jsonify({"error": "注册失败，请稍后重试"}), 409
     
     return render_template("register.html")
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
     token = request.cookies.get('session_token')
     if token:
         database.clear_session_token(token)
-    response = make_response(redirect(url_for('login')))
-    response.set_cookie('session_token', '', expires=0)
+    response = make_response(jsonify({"status": "success"}))
+    _clear_auth_cookies(response)
     return response
 
-@app.route("/api/chat", methods=["POST"])
-def chat():
+@app.route("/profile")
+def profile():
+    user = get_current_user()
+    if not user:
+        return redirect(url_for('login'))
+
+    all_modules = [{"id": k, "name": v["name"], "emoji": v["emoji"]} for k, v in MODULES_DATA.items()]
+
+    # 获取用户使用统计
+    usage_stats = {"total_sessions": 0, "total_messages": 0, "total_files": 0}
+    try:
+        stats = database.get_user_sessions_with_stats(user['id'])
+        usage_stats["total_sessions"] = len(stats)
+        total_msgs = sum(s.get("total_count") or 0 for s in stats)
+        usage_stats["total_messages"] = total_msgs
+        total_files = 0
+        for s in stats:
+            files = s.get("files") or []
+            total_files += len(files)
+        usage_stats["total_files"] = total_files
+    except Exception as e:
+        print(f"[profile] 获取使用统计失败: {e}")
+
+    return render_template("profile.html", user=user, all_modules=all_modules, usage_stats=usage_stats)
+
+@app.route("/api/profile", methods=["GET"])
+def get_profile():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+    
+    if user.get('is_admin'):
+        avatar_url = database.get_local_avatar(user['id'])
+        return jsonify({
+            "success": True,
+            "user": {
+                "username": user['username'],
+                "email": user['email'],
+                "avatar_url": avatar_url
+            }
+        })
+    
+    result = supabase_client.get_user_by_id(user['id'])
+    if result["success"]:
+        return jsonify({"success": True, "user": result["user"]})
+    else:
+        return jsonify({"success": False, "error": result["error"]}), 500
+
+@app.route("/api/profile/username", methods=["POST"])
+def update_username():
     user = get_current_user()
     if not user:
         return jsonify({"error": "请先登录"}), 401
 
     data = safe_get_json()
-    if not data or not isinstance(data, dict):
-        return jsonify({"error": "Invalid request body"}), 400
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
 
-    session_id = str(data.get("session_id", "default"))[:64]
+    new_username = data.get("username")
+    if not new_username or len(new_username) < 2:
+        return jsonify({"error": "用户名至少2个字符"}), 400
+
+    if new_username == user.get('username'):
+        return jsonify({"success": True, "username": new_username})
+
+    if user.get('is_admin'):
+        # 管理员修改用户名：更新内存凭证、持久化到数据库、刷新 cookie
+        old_username = user['username']
+        if new_username in ADMIN_CREDENTIALS:
+            return jsonify({"success": False, "error": "该用户名已被使用"}), 409
+
+        # 迁移密码哈希到新用户名
+        ADMIN_CREDENTIALS[new_username] = ADMIN_CREDENTIALS.pop(old_username, _hash_password(''))
+        # 持久化到 admin_profile 表（跨重启保留）
+        database.update_local_admin_username(user['id'], new_username)
+
+        response = jsonify({"success": True, "username": new_username})
+        is_secure = os.environ.get('FLASK_ENV') == 'production'
+        response.set_cookie('admin_user', new_username, httponly=True, secure=is_secure,
+                            samesite='Lax', max_age=86400)
+        return response
+
+    exist_result = supabase_client.username_exists(new_username)
+    if exist_result["success"]:
+        if exist_result["exists"] and exist_result.get("user_id") != user['id']:
+            return jsonify({"success": False, "error": "该用户名已被使用"}), 409
+
+    result = supabase_client.update_username(user['id'], new_username)
+    if result["success"]:
+        conn = sqlite3.connect(database.DB_PATH)
+        cursor = conn.cursor()
+        try:
+            cursor.execute('UPDATE users SET username = ? WHERE user_id = ?', (new_username, user['id']))
+            conn.commit()
+        finally:
+            conn.close()
+        return jsonify({"success": True, "username": new_username})
+    else:
+        return jsonify({"success": False, "error": result["error"]}), 500
+
+@app.route("/api/profile/password", methods=["POST"])
+def update_password():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+    
+    if user.get('is_admin'):
+        return jsonify({"success": False, "error": "管理员账号不支持修改密码"}), 400
+    
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
+    
+    new_password = data.get("password")
+    confirm_password = data.get("confirm_password")
+    email = data.get("email")
+    
+    if not new_password or not confirm_password:
+        return jsonify({"error": "请输入密码"}), 400
+    
+    if new_password != confirm_password:
+        return jsonify({"error": "两次输入的密码不一致"}), 400
+    
+    if len(new_password) < 6:
+        return jsonify({"error": "密码长度至少6位"}), 400
+    
+    if email != user.get('email'):
+        return jsonify({"error": "邮箱验证失败"}), 400
+    
+    result = supabase_client.send_password_reset_email(email)
+    if result["success"]:
+        return jsonify({"success": True, "message": "密码重置邮件已发送，请查看邮箱完成密码修改"})
+    else:
+        return jsonify({"success": False, "error": result["error"]}), 500
+
+@app.route("/api/profile/avatar", methods=["POST"])
+def upload_avatar():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+    
+    if 'avatar' not in request.files:
+        return jsonify({"error": "请选择图片"}), 400
+    
+    file = request.files['avatar']
+    if file.filename == '':
+        return jsonify({"error": "请选择图片"}), 400
+    
+    allowed_extensions = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+    if '.' not in file.filename or file.filename.rsplit('.', 1)[1].lower() not in allowed_extensions:
+        return jsonify({"error": "只支持 PNG、JPG、JPEG、GIF、WEBP 格式"}), 400
+    
+    file_data = file.read()
+    if len(file_data) > 5 * 1024 * 1024:
+        return jsonify({"error": "图片大小不能超过5MB"}), 400
+    
+    valid_signatures = {
+        'png': b'\x89PNG\r\n\x1a\n',
+        'jpg': b'\xff\xd8\xff',
+        'jpeg': b'\xff\xd8\xff',
+        'gif': b'GIF8',
+        'webp': b'RIFF....WEBP',
+    }
+    ext = file.filename.rsplit('.', 1)[1].lower()
+    sig = valid_signatures.get(ext)
+    if sig:
+        if ext == 'webp':
+            if not file_data.startswith(b'RIFF') or len(file_data) < 12 or file_data[8:12] != b'WEBP':
+                return jsonify({"error": "无效的图片文件"}), 400
+        else:
+            if not file_data.startswith(sig):
+                return jsonify({"error": "无效的图片文件"}), 400
+    
+    import uuid
+    import os
+    filename = f"avatar_{user['id']}_{uuid.uuid4().hex[:8]}.{ext}"
+    upload_dir = os.path.join(DATA_DIR, 'uploads', 'avatars')
+    os.makedirs(upload_dir, exist_ok=True)
+    filepath = os.path.join(upload_dir, filename)
+    
+    with open(filepath, "wb") as f:
+        f.write(file_data)
+    
+    avatar_url = f"/api/avatar/{filename}"
+
+    if user.get('is_admin'):
+        database.update_local_avatar(user['id'], avatar_url)
+        return jsonify({"success": True, "avatar_url": avatar_url})
+
+    result = supabase_client.update_user_avatar(user['id'], avatar_url)
+
+    if result["success"]:
+        return jsonify({"success": True, "avatar_url": avatar_url})
+    else:
+        try:
+            os.remove(filepath)
+        except Exception:
+            pass
+        return jsonify({"success": False, "error": "上传失败，请稍后重试"}), 500
+
+@app.route("/api/auth/session", methods=["POST"])
+def set_auth_session():
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
+    
+    access_token = data.get("access_token")
+    if not access_token:
+        return jsonify({"error": "缺少 access_token"}), 400
+    
+    result = supabase_client.get_user(access_token)
+    if not result["success"]:
+        return jsonify({"error": "无效的 token"}), 401
+    
+    response = jsonify({"status": "success", "username": result["user"]["username"] or result["user"]["email"].split("@")[0], "csrf_token": _generate_csrf_token(result["user"]["id"])})
+    is_secure = os.environ.get('FLASK_ENV') == 'production'
+    response.set_cookie('session_token', access_token, httponly=True, secure=is_secure,
+                        samesite='Lax', max_age=86400*7)
+    return response
+
+@app.route("/api/auth/get-csrf-token", methods=["GET"])
+def get_csrf_token():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+    csrf_token = _generate_csrf_token(user['id'])
+    return jsonify({"success": True, "csrf_token": csrf_token})
+
+
+@app.route("/api/auth/get-email", methods=["POST"])
+def get_email_by_username():
+    # 修复 S3：限制仅管理员可调用，避免通过该接口枚举用户邮箱
+    admin_token = request.cookies.get('admin_token')
+    if not admin_token or admin_token != ADMIN_TOKEN_VALUE:
+        return jsonify({"error": "仅管理员可执行此操作"}), 403
+
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
+    
+    username = data.get("username")
+    if not username:
+        return jsonify({"error": "请提供用户名"}), 400
+    
+    local_email = database.get_email_by_username(username)
+    if local_email:
+        return jsonify({"success": True, "email": local_email})
+    
+    result = supabase_client.get_email_by_username(username)
+    if result["success"]:
+        return jsonify({"success": True, "email": result["email"]})
+    else:
+        return jsonify({"success": False, "error": result["error"]}), 401
+
+_CHAT_RATE_LIMIT = {}
+_CHAT_RATE_LOCK = threading.Lock()
+
+
+def _check_chat_rate_limit(ip: str) -> bool:
+    now = time.time()
+    with _CHAT_RATE_LOCK:
+        if ip not in _CHAT_RATE_LIMIT:
+            _CHAT_RATE_LIMIT[ip] = []
+        attempts = _CHAT_RATE_LIMIT[ip]
+        attempts = [t for t in attempts if now - t < 60]
+        _CHAT_RATE_LIMIT[ip] = attempts
+        if len(attempts) >= 20:
+            return False
+        _CHAT_RATE_LIMIT[ip].append(now)
+        # 修复 M3：定期清理空IP键，避免限流字典无界增长导致内存泄漏
+        if len(_CHAT_RATE_LIMIT) > 1000:
+            expired_keys = [k for k, v in _CHAT_RATE_LIMIT.items() if not v]
+            for k in expired_keys:
+                del _CHAT_RATE_LIMIT[k]
+    return True
+
+
+def _prepare_chat_message(data):
     user_message = data.get("message", "").strip()
     attachments = data.get("attachments") or []
 
-    if isinstance(attachments, list):
+    if isinstance(attachments, list) and len(attachments) <= 10:
         blocks = []
         for att in attachments:
             if not isinstance(att, dict):
                 continue
             name = str(att.get("name", "未命名文件"))[:120]
             kind = str(att.get("kind", "资料"))[:30]
-            text = str(att.get("text", ""))[:MAX_TEXT_CHARS]
+            full_text = str(att.get("text") or "")  # 修复 L10：att.get("text", "") 在值为 None 时仍返回 None，需用 or 兜底
+            text = full_text[:MAX_TEXT_CHARS]
+            original_len = len(full_text)
+            truncated_notice = ""
+            if original_len > MAX_TEXT_CHARS:
+                truncated_notice = f"\n（⚠️ 原文共约 {original_len} 字，已截断仅显示前 {MAX_TEXT_CHARS} 字，如需更多请告知）"
             blocks.append(
                 f"【用户上传文件：{name}（{kind}）】\n"
                 f"文件内容预览（节选，共约 {len(text)} 字）：\n"
                 f"```\n{text}\n```\n"
-                f"【上传文件结束】"
+                f"【上传文件结束】{truncated_notice}"
             )
         if blocks:
             if user_message:
@@ -1250,29 +1855,53 @@ def chat():
                 user_message = "\n\n".join(blocks)
 
     if not user_message:
-        return jsonify({"error": "Message cannot be empty"}), 400
-    
+        return None, "消息不能为空"
+
     if len(user_message) > 24000:
         user_message = user_message[:24000] + "\n\n[内容过长已截断]"
+
+    return user_message, None
+
+
+@app.route("/api/chat", methods=["POST"])
+def chat():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+
+    ip = request.remote_addr or 'unknown'
+    if request.headers.get('X-Forwarded-For'):
+        ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+
+    if not _check_chat_rate_limit(ip):
+        return jsonify({"error": "请求过于频繁，请1分钟后再试"}), 429
+
+    data = safe_get_json()
+    if not data or not isinstance(data, dict):
+        return jsonify({"error": "无效请求"}), 400
+
+    session_id = str(data.get("session_id", "default"))[:64]
+    user_message, err = _prepare_chat_message(data)
+    if err:
+        return jsonify({"error": err}), 400
 
     _model = data.get("model", MODEL)
     try:
         _temp = max(0.0, min(2.0, float(data.get("temperature", TEMP))))
         _max_tokens = max(1, min(16384, int(data.get("max_tokens", MAX_TOKENS))))
     except (ValueError, TypeError):
-        return jsonify({"error": "Invalid temperature or max_tokens value"}), 400
+        return jsonify({"error": "参数格式错误"}), 400
 
     key = _session_key(user['id'], session_id)
-    if key not in sessions:
-        sessions[key] = [{"role": "system", "content": SYSTEM_PROMPT}]
-
-    sessions[key].append({"role": "user", "content": user_message})
-
-    database.save_search_history(user['id'], user_message)
+    with sessions_lock:
+        if key not in sessions:
+            sessions[key] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        sessions[key].append({"role": "user", "content": user_message})
 
     try:
-        client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
-        msgs = trim_history(sessions[key])
+        client = OpenAI(api_key=API_KEY, base_url=BASE_URL, timeout=60.0)
+        with sessions_lock:
+            msgs = trim_history(sessions[key])
         response = client.chat.completions.create(
             model=_model,
             messages=msgs,
@@ -1280,14 +1909,29 @@ def chat():
             max_tokens=_max_tokens,
         )
     except Exception as e:
-        return jsonify({"error": f"API request failed: {str(e)}"}), 500
+        print(f"[Chat] API request failed: {e}")
+        with sessions_lock:
+            msgs = sessions.get(key, [])
+            if msgs and msgs[-1].get("role") == "user" and msgs[-1].get("content") == user_message:
+                msgs.pop()
+        return jsonify({"error": "请求失败，请稍后重试"}), 500
+
+    if not response.choices or not response.choices[0].message.content:
+        with sessions_lock:
+            msgs = sessions.get(key, [])
+            if msgs and msgs[-1].get("role") == "user" and msgs[-1].get("content") == user_message:
+                msgs.pop()
+        return jsonify({"error": "请求失败，请稍后重试"}), 500
 
     reply = response.choices[0].message.content
     usage = response.usage
+    # 修复 M1：response.usage 可能为 None，访问前需判空，避免 AttributeError
+    prompt_tokens = usage.prompt_tokens if usage else 0
+    completion_tokens = usage.completion_tokens if usage else 0
 
-    sessions[key].append({"role": "assistant", "content": reply})
-
-    first_user_msg = next((m["content"] for m in sessions[key] if m["role"] == "user"), "")
+    with sessions_lock:
+        sessions[key].append({"role": "assistant", "content": reply})
+        first_user_msg = next((m["content"] for m in sessions[key] if m["role"] == "user"), "")
     title = first_user_msg[:30] + "..." if len(first_user_msg) > 30 else first_user_msg
     database.save_user_chat_session(user['id'], session_id, title)
 
@@ -1298,8 +1942,8 @@ def chat():
         "raw_reply": reply,
         "model": response.model,
         "usage": {
-            "prompt_tokens": usage.prompt_tokens,
-            "completion_tokens": usage.completion_tokens,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
         },
         "saved_files": saved_files,
         "saved_ppts": saved_ppts,
@@ -1401,45 +2045,30 @@ def chat_stream():
             mimetype="text/event-stream"
         )
 
+    ip = request.remote_addr or 'unknown'
+    if request.headers.get('X-Forwarded-For'):
+        ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+
+    if not _check_chat_rate_limit(ip):
+        return Response(
+            f"data: {json.dumps({'type': 'error', 'content': '请求过于频繁，请1分钟后再试'}, ensure_ascii=False)}\n\n",
+            mimetype="text/event-stream"
+        )
+
     data = safe_get_json()
     if not data or not isinstance(data, dict):
         return Response(
-            f"data: {json.dumps({'type': 'error', 'content': 'Invalid request body'}, ensure_ascii=False)}\n\n",
+            f"data: {json.dumps({'type': 'error', 'content': '无效请求'}, ensure_ascii=False)}\n\n",
             mimetype="text/event-stream"
         )
 
     session_id = str(data.get("session_id", "default"))[:64]
-    user_message = data.get("message", "").strip()
-    attachments = data.get("attachments") or []
-    
-    if isinstance(attachments, list):
-        blocks = []
-        for att in attachments:
-            if not isinstance(att, dict):
-                continue
-            name = str(att.get("name", "未命名文件"))[:120]
-            kind = str(att.get("kind", "资料"))[:30]
-            text = str(att.get("text", ""))[:MAX_TEXT_CHARS]
-            blocks.append(
-                f"【用户上传文件：{name}（{kind}）】\n"
-                f"文件内容预览（节选，共约 {len(text)} 字）：\n"
-                f"```\n{text}\n```\n"
-                f"【上传文件结束】"
-            )
-        if blocks:
-            if user_message:
-                user_message = user_message + "\n\n---\n\n" + "\n\n".join(blocks)
-            else:
-                user_message = "\n\n".join(blocks)
-
-    if not user_message:
+    user_message, err = _prepare_chat_message(data)
+    if err:
         return Response(
-            f"data: {json.dumps({'type': 'error', 'content': 'Message cannot be empty'}, ensure_ascii=False)}\n\n",
+            f"data: {json.dumps({'type': 'error', 'content': err}, ensure_ascii=False)}\n\n",
             mimetype="text/event-stream"
         )
-    
-    if len(user_message) > 24000:
-        user_message = user_message[:24000] + "\n\n[内容过长已截断]"
 
     _model = data.get("model", MODEL)
     try:
@@ -1447,16 +2076,15 @@ def chat_stream():
         _max_tokens = max(1, min(16384, int(data.get("max_tokens", MAX_TOKENS))))
     except (ValueError, TypeError):
         return Response(
-            f"data: {json.dumps({'type': 'error', 'content': 'Invalid temperature or max_tokens value'}, ensure_ascii=False)}\n\n",
+            f"data: {json.dumps({'type': 'error', 'content': '参数格式错误'}, ensure_ascii=False)}\n\n",
             mimetype="text/event-stream"
         )
 
     key = _session_key(user['id'], session_id)
-    if key not in sessions:
-        sessions[key] = [{"role": "system", "content": SYSTEM_PROMPT}]
-
-    sessions[key].append({"role": "user", "content": user_message})
-    database.save_search_history(user['id'], user_message)
+    with sessions_lock:
+        if key not in sessions:
+            sessions[key] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        sessions[key].append({"role": "user", "content": user_message})
 
     def generate():
         thinking_phases = generate_thinking_phases(user_message)
@@ -1466,12 +2094,16 @@ def chat_stream():
         full_reply = ""
         ai_queue = queue.Queue()
         first_content_received = False
+        stop_event = threading.Event()
+        start_time = time.time()
+        MAX_STREAM_DURATION = 300
 
         def ai_worker():
             nonlocal full_reply, ai_done, ai_error
             try:
-                client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
-                msgs = trim_history(sessions[key])
+                client = OpenAI(api_key=API_KEY, base_url=BASE_URL, timeout=60.0)
+                with sessions_lock:
+                    msgs = trim_history(sessions[key])
                 stream = client.chat.completions.create(
                     model=_model,
                     messages=msgs,
@@ -1480,18 +2112,25 @@ def chat_stream():
                     stream=True,
                 )
                 for chunk in stream:
-                    if chunk.choices[0].delta.content:
+                    if stop_event.is_set() or (time.time() - start_time) > MAX_STREAM_DURATION:
+                        try:
+                            stream.close()
+                        except Exception:
+                            pass
+                        break
+                    if chunk.choices and chunk.choices[0].delta.content:
                         content = chunk.choices[0].delta.content
                         full_reply += content
                         ai_queue.put(("content", content))
                 ai_queue.put(("done", None))
                 ai_done = True
             except Exception as e:
-                ai_error = str(e)
-                ai_queue.put(("error", str(e)))
+                print(f"[Chat] Stream request failed: {e}")
+                ai_error = "请求失败，请稍后重试"
+                ai_queue.put(("error", ai_error))
                 ai_done = True
 
-        ai_thread = threading.Thread(target=ai_worker)
+        ai_thread = threading.Thread(target=ai_worker, daemon=True)
         ai_thread.start()
 
         total_thinking_time = 0
@@ -1518,6 +2157,8 @@ def chat_stream():
                     while not ai_queue.empty():
                         msg_type, msg_data = ai_queue.get()
                         if msg_type == "content":
+                            # 修复 B1：首个 content 分片必须立即 yield，否则会丢失
+                            yield f"data: {json.dumps({'type': 'content', 'content': msg_data}, ensure_ascii=False)}\n\n"
                             first_content_received = True
                             break
                         elif msg_type == "done":
@@ -1525,6 +2166,7 @@ def chat_stream():
                             ai_done = True
                             break
                         elif msg_type == "error":
+                            ai_error = msg_data
                             first_content_received = True
                             ai_done = True
                             break
@@ -1540,33 +2182,67 @@ def chat_stream():
             yield f"data: {json.dumps({'type': 'thinking_done', 'content': final_thinking}, ensure_ascii=False)}\n\n"
             thinking_done = True
 
-        if ai_error:
-            yield f"data: {json.dumps({'type': 'error', 'content': ai_error}, ensure_ascii=False)}\n\n"
+        try:
+            while not ai_done or not ai_queue.empty():
+                try:
+                    msg_type, msg_data = ai_queue.get(timeout=0.1)
+                    if msg_type == "content":
+                        yield f"data: {json.dumps({'type': 'content', 'content': msg_data}, ensure_ascii=False)}\n\n"
+                    elif msg_type == "done":
+                        ai_done = True
+                    elif msg_type == "error":
+                        ai_error = msg_data
+                        ai_done = True
+                except queue.Empty:
+                    if not ai_done:
+                        if (time.time() - start_time) > MAX_STREAM_DURATION:
+                            ai_error = "请求超时，请稍后重试"
+                            ai_done = True
+                        else:
+                            time.sleep(0.05)
+        except GeneratorExit:
+            stop_event.set()
+            ai_thread.join(timeout=5.0)
+            if full_reply:
+                with sessions_lock:
+                    sessions[key].append({"role": "assistant", "content": full_reply})
+                database.save_user_chat_session(user['id'], session_id,
+                    (next((m["content"] for m in sessions[key] if m["role"] == "user"), "")[:30]) + "...")
             return
 
-        while not ai_done or not ai_queue.empty():
-            try:
-                msg_type, msg_data = ai_queue.get(timeout=0.1)
-                if msg_type == "content":
-                    yield f"data: {json.dumps({'type': 'content', 'content': msg_data}, ensure_ascii=False)}\n\n"
-                elif msg_type == "done":
-                    ai_done = True
-            except queue.Empty:
-                if not ai_done:
-                    time.sleep(0.05)
+        if ai_error:
+            if full_reply:
+                with sessions_lock:
+                    sessions[key].append({"role": "assistant", "content": full_reply})
+                first_user_msg = next((m["content"] for m in sessions[key] if m["role"] == "user"), "")
+                title = first_user_msg[:30] + "..." if len(first_user_msg) > 30 else first_user_msg
+                database.save_user_chat_session(user['id'], session_id, title)
+                # 修复 B2：删除重复 yield full_reply（内容已在流中下发，避免重复发送）
+            yield f"data: {json.dumps({'type': 'error', 'content': ai_error}, ensure_ascii=False)}\n\n"
+            if not full_reply:
+                with sessions_lock:
+                    msgs = sessions.get(key, [])
+                    if msgs and msgs[-1].get("role") == "user" and msgs[-1].get("content") == user_message:
+                        msgs.pop()
+            return
 
-        sessions[key].append({"role": "assistant", "content": full_reply})
+        if full_reply:
+            with sessions_lock:
+                sessions[key].append({"role": "assistant", "content": full_reply})
+                first_user_msg = next((m["content"] for m in sessions[key] if m["role"] == "user"), "")
+            title = first_user_msg[:30] + "..." if len(first_user_msg) > 30 else first_user_msg
+            database.save_user_chat_session(user['id'], session_id, title)
 
-        first_user_msg = next((m["content"] for m in sessions[key] if m["role"] == "user"), "")
-        title = first_user_msg[:30] + "..." if len(first_user_msg) > 30 else first_user_msg
-        database.save_user_chat_session(user['id'], session_id, title)
+            saved_files, saved_ppts, display = extract_and_save_all(user_message, full_reply, user['id'])
 
-        saved_files, saved_ppts, display = extract_and_save_all(user_message, full_reply, user['id'])
+            final_thinking_text = thinking_to_text(thinking_phases, len(thinking_phases) - 1, len(thinking_phases[-1]["items"]) - 1)
+            yield f"data: {json.dumps({'type': 'done', 'content': display, 'raw_content': full_reply, 'saved_files': saved_files, 'saved_ppts': saved_ppts, 'thinking': final_thinking_text}, ensure_ascii=False)}\n\n"
 
-        final_thinking_text = thinking_to_text(thinking_phases, len(thinking_phases) - 1, len(thinking_phases[-1]["items"]) - 1)
-        yield f"data: {json.dumps({'type': 'done', 'content': display, 'raw_content': full_reply, 'saved_files': saved_files, 'saved_ppts': saved_ppts, 'thinking': final_thinking_text}, ensure_ascii=False)}\n\n"
-
-    return Response(generate(), mimetype="text/event-stream")
+    return Response(generate(), mimetype="text/event-stream", headers={
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',
+        'Connection': 'keep-alive',
+    })
 
 @app.route("/api/clear", methods=["POST"])
 def clear():
@@ -1577,7 +2253,8 @@ def clear():
     data = safe_get_json() or {}
     session_id = data.get("session_id", "default")
     key = _session_key(user['id'], session_id)
-    sessions[key] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    with sessions_lock:
+        sessions[key] = [{"role": "system", "content": SYSTEM_PROMPT}]
     return jsonify({"status": "ok"})
 
 @app.route("/api/sessions", methods=["GET"])
@@ -1604,8 +2281,12 @@ def get_session(session_id):
         return jsonify({"error": "请先登录"}), 401
 
     key = _session_key(user['id'], session_id)
-    if key in sessions:
-        msgs = sessions[key]
+    with sessions_lock:
+        if key in sessions:
+            msgs = sessions[key]
+        else:
+            msgs = []
+    if msgs:
         user_msgs = [m for m in msgs if m["role"] == "user"]
         title = "新对话"
         if user_msgs:
@@ -1636,8 +2317,9 @@ def delete_session(session_id):
 
     database.delete_user_session(user['id'], session_id)
     key = _session_key(user['id'], session_id)
-    if key in sessions:
-        del sessions[key]
+    with sessions_lock:
+        if key in sessions:
+            del sessions[key]
     return jsonify({"status": "ok"})
 
 @app.route("/api/sessions/batch", methods=["DELETE"])
@@ -1652,8 +2334,9 @@ def delete_sessions_batch():
     for sid in ids:
         database.delete_user_session(user['id'], sid)
         key = _session_key(user['id'], sid)
-        if key in sessions:
-            del sessions[key]
+        with sessions_lock:
+            if key in sessions:
+                del sessions[key]
         deleted += 1
     return jsonify({"status": "ok", "deleted": deleted})
 
@@ -1664,9 +2347,10 @@ def delete_all_sessions():
         return jsonify({"error": "请先登录"}), 401
 
     prefix = f"{user['id']}:"
-    to_delete = [key for key in sessions if key.startswith(prefix)]
-    for key in to_delete:
-        del sessions[key]
+    with sessions_lock:
+        to_delete = [key for key in sessions if key.startswith(prefix)]
+        for key in to_delete:
+            del sessions[key]
     db_deleted = database.delete_all_user_sessions(user['id'])
     return jsonify({"status": "ok", "memory_deleted": len(to_delete), "db_deleted": db_deleted})
 
@@ -1768,6 +2452,11 @@ def api_upload():
     if ext not in ALLOWED_UPLOAD_EXT:
         return jsonify({"error": f"不支持的格式 {ext}，支持：md / txt / docx / xlsx / csv / pdf"}), 400
 
+    # 修复 M4：先校验 Content-Length，避免把超大文件整体读入内存后才报错
+    content_length = request.content_length or 0
+    if content_length > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "文件过大，超出上传上限"}), 413
+
     raw = f.read()
     if len(raw) > MAX_UPLOAD_BYTES:
         return jsonify({"error": f"文件过大 {len(raw)} bytes，上限 {MAX_UPLOAD_BYTES} bytes（20MB）"}), 400
@@ -1798,18 +2487,19 @@ def api_upload():
         elif ext == '.xlsx':
             import openpyxl
             bio = BytesIO(raw)
-            wb = openpyxl.load_workbook(bio, read_only=True, data_only=True)
-            sheets_text = []
-            for ws in wb.worksheets:
-                rows = []
-                for idx, row in enumerate(ws.iter_rows(values_only=True)):
-                    if idx > 60:
-                        break
-                    rows.append(list(row)[:16])
-                md = _table_to_markdown(rows)
-                if md:
-                    sheets_text.append(f"# 工作表：{ws.title}\n{md}")
-            text = "\n\n".join(sheets_text)
+            # 修复 M5：使用 with 语句保证 workbook 在异常或正常结束后均被关闭，避免资源泄漏
+            with openpyxl.load_workbook(bio, read_only=True, data_only=True) as wb:
+                sheets_text = []
+                for ws in wb.worksheets:
+                    rows = []
+                    for idx, row in enumerate(ws.iter_rows(values_only=True)):
+                        if idx > 60:
+                            break
+                        rows.append(list(row)[:16])
+                    md = _table_to_markdown(rows)
+                    if md:
+                        sheets_text.append(f"# 工作表：{ws.title}\n{md}")
+                text = "\n\n".join(sheets_text)
         elif ext == '.pdf':
             try:
                 import PyPDF2
@@ -1866,31 +2556,41 @@ def _find_user_file(filename):
     if not _is_safe_filename(filename):
         return None
     user = get_current_user()
+    
     if user:
         user_dir = os.path.realpath(get_user_output_dir(user['id']))
         fp = os.path.realpath(os.path.join(user_dir, filename))
         if os.path.isfile(fp) and fp.startswith(user_dir + os.sep):
             return fp
-    if os.path.isdir(HISTORY_DIR):
-        hist_real = os.path.realpath(HISTORY_DIR)
-        for sub in os.listdir(HISTORY_DIR):
-            sub_dir = os.path.realpath(os.path.join(hist_real, sub))
-            if not os.path.isdir(sub_dir):
-                continue
-            fp = os.path.realpath(os.path.join(sub_dir, filename))
-            if os.path.isfile(fp) and fp.startswith(sub_dir + os.sep):
-                return fp
+    
     out_real = os.path.realpath(OUTPUT_DIR)
     fp = os.path.realpath(os.path.join(out_real, filename))
     if os.path.isfile(fp) and fp.startswith(out_real + os.sep):
         return fp
+    
+    vis_real = os.path.realpath(str(VISUAL_OUTPUT_DIR))
+    fp = os.path.realpath(os.path.join(vis_real, filename))
+    if os.path.isfile(fp) and fp.startswith(vis_real + os.sep):
+        return fp
+    
+    avatars_dir = os.path.realpath(os.path.join(DATA_DIR, 'uploads', 'avatars'))
+    fp = os.path.realpath(os.path.join(avatars_dir, filename))
+    if os.path.isfile(fp) and fp.startswith(avatars_dir + os.sep):
+        return fp
+    
     return None
 
 
 @app.route("/api/download/<path:filename>")
 def download(filename):
+    # 修复 S1：download 路由必须强制登录认证，避免匿名用户遍历下载文件
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "未登录"}), 401
     from urllib.parse import unquote, quote as _qd
     filename = unquote(filename)
+    if not _is_safe_filename(filename):
+        return jsonify({"error": "文件不存在"}), 404
     filepath = _find_user_file(filename)
     if not filepath:
         return jsonify({"error": "文件不存在"}), 404
@@ -1910,7 +2610,73 @@ def download(filename):
     except Exception as ee:
         print(f"[download] 发送文件异常: {ee}")
         import traceback; traceback.print_exc()
-        return jsonify({"error": f"文件下载失败: {ee}"}), 500
+        return jsonify({"error": "文件下载失败"}), 500
+
+
+@app.route("/api/avatar/<filename>")
+def serve_avatar(filename):
+    if not _is_safe_filename(filename):
+        return jsonify({"error": "无效的文件"}), 400
+    
+    avatars_dir = os.path.realpath(os.path.join(DATA_DIR, 'uploads', 'avatars'))
+    filepath = os.path.realpath(os.path.join(avatars_dir, filename))
+    
+    if not os.path.isfile(filepath) or not filepath.startswith(avatars_dir + os.sep):
+        return jsonify({"error": "文件不存在"}), 404
+    
+    ext = os.path.splitext(filename)[1].lower()
+    mimetype = MIME_MAP.get(ext, 'image/png')
+    
+    try:
+        return send_file(filepath, mimetype=mimetype)
+    except Exception as ee:
+        print(f"[avatar] 发送文件异常: {ee}")
+        return jsonify({"error": "图片加载失败"}), 500
+
+
+@app.route("/api/save_blob", methods=["POST"])
+def save_blob():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+    
+    import base64
+    
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
+    
+    filename = data.get('filename', 'download')
+    blob_data = data.get('data')
+    
+    if not blob_data:
+        return jsonify({"error": "缺少文件数据"}), 400
+    
+    safe_filename = _sanitize_filename(filename) if filename else 'download'
+    if not safe_filename:
+        safe_filename = 'download'
+    # 修复 M11：在文件名前加用户ID前缀，避免不同用户同名文件相互覆盖/越权下载
+    user_prefix = f"{user['id']}_"
+    safe_filename = f"{user_prefix}{safe_filename}"
+    filepath = os.path.join(str(VISUAL_OUTPUT_DIR), safe_filename)
+
+    real_visual_dir = os.path.realpath(str(VISUAL_OUTPUT_DIR))
+    real_filepath = os.path.realpath(filepath)
+    if not real_filepath.startswith(real_visual_dir + os.sep):
+        return jsonify({"error": "无效的文件名"}), 400
+
+    try:
+        decoded_data = base64.b64decode(blob_data)
+        if len(decoded_data) > 10 * 1024 * 1024:
+            return jsonify({"error": "文件大小不能超过10MB"}), 400
+        with open(filepath, 'wb') as f:
+            f.write(decoded_data)
+
+        download_url = f'/api/download/{safe_filename}'
+        return jsonify({"success": True, "url": download_url})
+    except Exception as e:
+        print(f"[save_blob] 保存文件异常: {e}")
+        return jsonify({"error": "文件保存失败"}), 500
 
 
 @app.route("/api/export/word", methods=["POST"])
@@ -1958,7 +2724,49 @@ def export_to_word():
         return resp
     except Exception as e:
         import traceback; traceback.print_exc()
-        return jsonify({"error": f"导出失败: {str(e)}"}), 500
+        return jsonify({"error": "导出失败"}), 500
+
+_PPT_RATE_LIMIT = {}
+_PPT_RATE_LOCK = threading.Lock()
+
+
+def _check_ppt_rate_limit(ip: str) -> bool:
+    now = time.time()
+    with _PPT_RATE_LOCK:
+        if ip not in _PPT_RATE_LIMIT:
+            _PPT_RATE_LIMIT[ip] = []
+        attempts = _PPT_RATE_LIMIT[ip]
+        attempts = [t for t in attempts if now - t < 300]
+        _PPT_RATE_LIMIT[ip] = attempts
+        if len(attempts) >= 10:
+            return False
+        _PPT_RATE_LIMIT[ip].append(now)
+        # 修复 M3：定期清理空IP键，避免限流字典无界增长导致内存泄漏
+        if len(_PPT_RATE_LIMIT) > 1000:
+            expired_keys = [k for k, v in _PPT_RATE_LIMIT.items() if not v]
+            for k in expired_keys:
+                del _PPT_RATE_LIMIT[k]
+    return True
+
+
+def _cleanup_user_expired_files(user_output_dir, max_age_hours=24):
+    try:
+        if not os.path.exists(user_output_dir):
+            return
+        now = time.time()
+        cutoff = now - max_age_hours * 3600
+        for filename in os.listdir(user_output_dir):
+            filepath = os.path.join(user_output_dir, filename)
+            if os.path.isfile(filepath):
+                try:
+                    mtime = os.path.getmtime(filepath)
+                    if mtime < cutoff and (filename.endswith('.docx') or filename.endswith('.pptx') or filename.endswith('.md')):
+                        os.remove(filepath)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
 
 @app.route("/api/export/ppt", methods=["POST"])
 def export_to_ppt():
@@ -1966,12 +2774,26 @@ def export_to_ppt():
     if not user:
         return jsonify({"error": "请先登录"}), 401
 
+    ip = request.remote_addr or 'unknown'
+    if request.headers.get('X-Forwarded-For'):
+        ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+
+    if not _check_ppt_rate_limit(ip):
+        return jsonify({"error": "请求过于频繁，请5分钟后再试"}), 429
+
     data = safe_get_json()
     if not data or not isinstance(data, dict):
-        return jsonify({"error": "Invalid request body"}), 400
+        return jsonify({"error": "无效请求"}), 400
 
-    markdown_content = data.get("content", "").strip()
-    title = str(data.get("title", "课件")).strip()
+    markdown_content = data.get("content", "")
+    if not isinstance(markdown_content, str):
+        return jsonify({"error": "内容格式错误"}), 400
+    markdown_content = markdown_content.strip()
+
+    title = data.get("title", "课件")
+    if not isinstance(title, str):
+        title = "课件"
+    title = title.strip()
 
     if not markdown_content:
         return jsonify({"error": "内容不能为空"}), 400
@@ -1980,11 +2802,13 @@ def export_to_ppt():
         return jsonify({"error": "内容过长，无法导出"}), 400
 
     user_output_dir = get_user_output_dir(user['id'])
+    _cleanup_user_expired_files(user_output_dir)
 
+    ppt_buffer = None
     try:
         ppt_buffer = markdown_to_ppt(markdown_content, title)
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        safe_title = re.sub(r'[<>:"/\\|?*]', '', title)[:20] or "untitled"
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        safe_title = _sanitize_filename(title)[:20] or "untitled"
         filename = f"课件_{safe_title}_{timestamp}.pptx"
         filepath = os.path.join(user_output_dir, filename)
 
@@ -2003,8 +2827,448 @@ def export_to_ppt():
         resp.headers['Access-Control-Expose-Headers'] = 'X-Filename, X-Filename-Encoded, Content-Disposition'
         return resp
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"[PPT] 导出失败: {e}", flush=True)
+        return jsonify({"error": f"导出 PPT 失败: {e}"}), 500
+    finally:
+        if ppt_buffer is not None:
+            try:
+                ppt_buffer.close()
+            except Exception:
+                pass
+
+
+@app.route("/api/lesson_plan/template_upload", methods=["POST"])
+def api_lesson_plan_template_upload():
+    cleanup_template_cache()
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+
+    if 'file' not in request.files:
+        return jsonify({"error": "未收到上传文件字段 file"}), 400
+
+    f = request.files['file']
+    if not f or not f.filename:
+        return jsonify({"error": "文件名为空"}), 400
+
+    filename = os.path.basename(f.filename)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext != '.docx':
+        return jsonify({"error": "仅支持 .docx 格式的教案模板"}), 400
+
+    raw = f.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return jsonify({"error": f"文件过大 {len(raw)} bytes，上限 {MAX_UPLOAD_BYTES} bytes（20MB）"}), 400
+
+    try:
+        structure_map, pending_confirmations = template_filler.parse_docx_structure(raw)
+    except Exception as ee:
         import traceback; traceback.print_exc()
-        return jsonify({"error": f"导出 PPT 失败: {str(e)}"}), 500
+        return jsonify({"error": f"解析模板失败: {ee}", "error_code": "PARSE_FAILED"}), 500
+
+    template_id = str(uuid.uuid4())
+    with TEMPLATE_CACHE_LOCK:
+        TEMPLATE_CACHE[template_id] = {
+            'docx_bytes': raw,
+            'structure_map': structure_map,
+            'pending_confirmations': pending_confirmations,
+            'filename': filename,
+            'user_id': user['id'],
+            'timestamp': time.time(),
+        }
+
+    regions_summary = []
+    for region_id, region_info in structure_map.items():
+        regions_summary.append({
+            'region_id': region_id,
+            'type': region_info['type'],
+            'region_type': region_info['region_type'],
+            'location': region_info.get('location', ''),
+            'text_preview': region_info.get('text', '')[:100],
+            'is_placeholder': region_info.get('is_placeholder', False),
+            'needs_confirmation': region_info.get('needs_confirmation', False),
+        })
+
+    return jsonify({
+        "ok": True,
+        "template_id": template_id,
+        "filename": filename,
+        "structure_map": regions_summary,
+        "pending_confirmations": pending_confirmations,
+        "has_pending": len(pending_confirmations) > 0,
+    })
+
+
+@app.route("/api/lesson_plan/template_fill", methods=["POST"])
+def api_lesson_plan_template_fill():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "请求数据为空"}), 400
+
+    template_id = data.get("template_id")
+    if not template_id:
+        return jsonify({"error": "缺少 template_id"}), 400
+
+    with TEMPLATE_CACHE_LOCK:
+        if template_id not in TEMPLATE_CACHE:
+            return jsonify({"error": "模板不存在或已过期"}), 404
+        template_data = TEMPLATE_CACHE[template_id]
+        if template_data['user_id'] != user['id']:
+            return jsonify({"error": "无权访问此模板"}), 403
+
+    content_mapping = data.get("content_mapping", {})
+    if not content_mapping:
+        return jsonify({"error": "缺少 content_mapping"}), 400
+
+    # 调试：打印 content_mapping 和 structure_map 的键
+    print(f"[template_fill] content_mapping keys: {list(content_mapping.keys())[:5]}...")
+    print(f"[template_fill] structure_map keys: {list(template_data['structure_map'].keys())[:5]}...")
+
+    try:
+        filled_doc = template_filler.fill_lesson_plan_template(
+            template_data['docx_bytes'],
+            content_mapping,
+            template_data['structure_map'],
+        )
+    except Exception as ee:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": f"填充模板失败: {ee}", "error_code": "FILL_FAILED"}), 500
+
+    output_filename = f"已填充_{template_data['filename']}"
+    return send_file(
+        filled_doc,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        as_attachment=True,
+        download_name=output_filename,
+    )
+
+
+@app.route("/api/lesson_plan/template_confirm", methods=["POST"])
+def api_lesson_plan_template_confirm():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "请求数据为空"}), 400
+
+    template_id = data.get("template_id")
+    if not template_id:
+        return jsonify({"error": "缺少 template_id"}), 400
+
+    confirmations = data.get("confirmations", {})
+    with TEMPLATE_CACHE_LOCK:
+        if template_id not in TEMPLATE_CACHE:
+            return jsonify({"error": "模板不存在或已过期"}), 404
+        template_data = TEMPLATE_CACHE[template_id]
+        if template_data['user_id'] != user['id']:
+            return jsonify({"error": "无权访问此模板"}), 403
+
+        # 修复 M10：对 template_data 的 structure_map / pending_confirmations 修改必须在锁内，
+        # 否则与 template_fill 并发执行会造成数据竞态
+        for region_id, confirmed_type in confirmations.items():
+            if region_id in template_data['structure_map']:
+                template_data['structure_map'][region_id]['region_type'] = confirmed_type
+                template_data['structure_map'][region_id]['needs_confirmation'] = False
+
+        new_pending = [
+            p for p in template_data['pending_confirmations']
+            if p['region_id'] not in confirmations
+        ]
+        template_data['pending_confirmations'] = new_pending
+
+    return jsonify({
+        "ok": True,
+        "has_pending": len(new_pending) > 0,
+        "pending_count": len(new_pending),
+    })
+
+
+@app.route("/api/lesson_plan/template_generate", methods=["POST"])
+def api_lesson_plan_template_generate():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "请求数据为空"}), 400
+
+    template_id = data.get("template_id")
+    if not template_id:
+        return jsonify({"error": "缺少 template_id"}), 400
+
+    with TEMPLATE_CACHE_LOCK:
+        if template_id not in TEMPLATE_CACHE:
+            return jsonify({"error": "模板不存在或已过期"}), 404
+        template_data = TEMPLATE_CACHE[template_id]
+        if template_data['user_id'] != user['id']:
+            return jsonify({"error": "无权访问此模板"}), 403
+
+    user_prompt = data.get("prompt", "").strip()
+    if not user_prompt:
+        return jsonify({"error": "缺少生成需求"}), 400
+
+    structure_map = template_data['structure_map']
+
+    regions_info = []
+    for region_id, region_info in structure_map.items():
+        regions_info.append({
+            'region_id': region_id,
+            'region_type': region_info.get('region_type', '待确认'),
+            'location': region_info.get('location', ''),
+            'text_preview': region_info.get('text', '')[:100],
+            'is_placeholder': region_info.get('is_placeholder', False),
+        })
+
+    ai_prompt = f"""
+你是一位专业的教案生成专家。请根据用户的需求，为以下教案模板中的每个可填充区域生成相应的教学内容。
+
+用户需求：{user_prompt}
+
+模板区域列表：
+{json.dumps(regions_info, ensure_ascii=False, indent=2)}
+
+请严格按照以下格式输出（必须包裹在 ```json 代码块中）：
+```json
+{{
+    "<region_id>": "<该区域的教学内容>",
+    ...
+}}
+```
+
+注意事项：
+1. 每个区域的内容要符合其类型（如"教学目标"区域只生成目标内容）
+2. 内容要详细、专业，符合中小学教学规范
+3. 如果区域是占位符（is_placeholder: true），请生成完整的内容替换它
+4. 如果区域已有文本（text_preview非空），请根据上下文生成补充或替换内容
+5. 只输出上述JSON代码块，不要包含其他文字或解释
+""".strip()
+
+    try:
+        # 修复 M6：补充 timeout，避免教案模板生成请求无限期挂起
+        client = OpenAI(api_key=API_KEY, base_url=BASE_URL, timeout=60.0)
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=[
+                {"role": "system", "content": "你是一位专业的教案生成专家，擅长根据模板结构生成高质量的教学内容。"},
+                {"role": "user", "content": ai_prompt},
+            ],
+            temperature=0.7,
+            max_tokens=4096,
+        )
+    except Exception as e:
+        return jsonify({"error": "AI请求失败"}), 500
+
+    reply = response.choices[0].message.content
+
+    print(f"[AI Reply] length={len(reply)}")
+    print(f"[AI Reply] first 500 chars:\n{reply[:500]}")
+
+    # 将AI响应保存到日志文件以便调试
+    try:
+        with open('ai_reply_debug.log', 'w', encoding='utf-8') as f:
+            f.write(f"Timestamp: {datetime.datetime.now()}\n")  # 修复 B5：datetime 已是模块，应调用 datetime.datetime.now()
+            f.write(f"Length: {len(reply)}\n")
+            f.write(f"Content:\n{reply}\n")
+    except Exception as e:
+        print(f"[Debug] Failed to write debug log: {e}")
+
+    def _extract_json_robust(text):
+        """健壮地提取JSON，处理AI生成的不规范JSON"""
+        import re
+        # 1. 优先提取 ```json 代码块
+        code_block_match = re.search(r'```json\s*([\s\S]*?)\s*```', text)
+        if code_block_match:
+            json_str = code_block_match.group(1).strip()
+        else:
+            # 2. 回退：直接找第一个 {...}
+            json_match = re.search(r'\{[\s\S]*\}', text)
+            if json_match:
+                json_str = json_match.group(0)
+            else:
+                raise ValueError("未找到JSON内容")
+
+        print(f"[JSON Extracted] length={len(json_str)}")
+
+        # 3. 规范化处理：清理不可见控制字符、统一引号
+        def _normalize_json(s):
+            # 移除不可见控制字符（保留换行和制表符）
+            s = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', s)
+            # 将中文引号替换为英文引号
+            s = s.replace('“', '"').replace('”', '"').replace('‘', "'").replace('’', "'")
+            # 移除尾随逗号
+            s = re.sub(r',\s*([\]}])', r'\1', s)
+            return s
+
+        json_str = _normalize_json(json_str)
+
+        # 4. 尝试使用 json5 解析（支持更宽松的JSON格式）
+        try:
+            import json5
+            result = json5.loads(json_str)
+            print(f"[JSON5 Parse] Success! keys={list(result.keys())[:5]}...")
+            return result
+        except Exception as e:
+            print(f"[JSON5 Parse] Failed: {e}")
+            # 打印出错位置附近的内容
+            try:
+                lines = json_str.split('\n')
+                if hasattr(e, 'lineno'):
+                    line_num = e.lineno
+                else:
+                    line_num = 74  # 常见错误位置
+                start_line = max(0, line_num - 3)
+                end_line = min(len(lines), line_num + 3)
+                print(f"[JSON Error Context] lines {start_line+1}-{end_line+1}:")
+                for i in range(start_line, end_line):
+                    prefix = ">>>" if i == line_num - 1 else "   "
+                    print(f"{prefix} {i+1}: {lines[i][:150]}")
+            except Exception:  # 修复 L3：裸 except 改为 except Exception，避免吞掉 KeyboardInterrupt / SystemExit
+                pass
+
+        # 5. 尝试标准 json 解析
+        try:
+            result = json.loads(json_str)
+            print(f"[JSON Parse] Success! keys={list(result.keys())[:5]}...")
+            return result
+        except json.JSONDecodeError as e:
+            print(f"[JSON Parse] Failed: {e}")
+            # 打印出错位置附近的内容
+            lines = json_str.split('\n')
+            start_line = max(0, e.lineno - 3)
+            end_line = min(len(lines), e.lineno + 3)
+            print(f"[JSON Error Context] lines {start_line+1}-{end_line+1}:")
+            for i in range(start_line, end_line):
+                prefix = ">>>" if i == e.lineno - 1 else "   "
+                print(f"{prefix} {i+1}: {lines[i][:150]}")
+
+        # 6. 修复常见JSON错误：值中未转义的双引号
+        # 更健壮的引号处理：逐字段解析
+        def _fix_json_with_quotes(s):
+            result = {}
+            # 按行分割处理
+            lines = s.strip().split('\n')
+            current_key = None
+            current_value = []
+            in_value = False
+            value_quote_char = None
+
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('{') or line.startswith('}'):
+                    continue
+
+                # 检测键值对开始
+                if ':' in line and not in_value:
+                    # 匹配 "key": "value" 或 "key": "value
+                    key_match = re.match(r'"([^"]+)"\s*:\s*["\']?(.*)$', line)
+                    if key_match:
+                        current_key = key_match.group(1)
+                        rest = key_match.group(2).rstrip(',').rstrip()
+                        # 检查值是否在本行结束
+                        if rest.endswith('"') or rest.endswith("'"):
+                            value_quote_char = rest[-1]
+                            current_value = [rest[:-1]]
+                            in_value = False
+                            result[current_key] = ''.join(current_value)
+                            current_key = None
+                        else:
+                            in_value = True
+                            value_quote_char = '"'
+                            current_value = [rest]
+                    continue
+
+                # 在值中
+                if in_value and current_key:
+                    stripped = line.rstrip(',').rstrip()
+                    # 检查值是否结束
+                    if stripped.endswith('"') or stripped.endswith("'"):
+                        current_value.append(stripped[:-1])
+                        in_value = False
+                        result[current_key] = '\n'.join(current_value)
+                        current_key = None
+                    else:
+                        current_value.append(stripped)
+
+            return result
+
+        fixed_result = _fix_json_with_quotes(json_str)
+        if fixed_result:
+            print(f"[Fixed Parse] Success! keys={list(fixed_result.keys())[:5]}...")
+            return fixed_result
+
+        # 7. 最后尝试：使用正则逐字段提取
+        mapping = {}
+        # 匹配 "key": "value" 模式（支持值中包含引号的情况）
+        key_value_pattern = r'"([\w_]+)"\s*:\s*"((?:[^"\\]|\\.|[\s\S])*?)"(?=\s*(?:,|\}))'
+        for match in re.finditer(key_value_pattern, json_str):
+            key = match.group(1)
+            value = match.group(2).replace('\\n', '\n').replace('\\"', '"').replace('\\\\', '\\')
+            mapping[key] = value
+
+        if mapping:
+            print(f"[Regex Parse] Success! keys={list(mapping.keys())[:5]}...")
+            return mapping
+
+        raise ValueError("无法解析JSON内容")
+
+    try:
+        content_mapping = _extract_json_robust(reply)
+    except Exception as e:
+        # 解析完全失败时，尝试从文本中逐区域提取内容
+        content_mapping = {}
+        for region_id in structure_map:
+            # 简单启发式：在回复中查找 region_id 后面的内容
+            pattern = re.escape(region_id) + r'[\"\']?\s*[:：]\s*[\"\']?([^\"\'\n,}]{10,500})'
+            m = re.search(pattern, reply)
+            if m:
+                content_mapping[region_id] = m.group(1).strip()
+
+        if not content_mapping:
+            return jsonify({
+                "error": f"解析AI响应失败: {str(e)}",
+                "raw_reply": reply[:3000],
+            }), 500
+
+    # 兜底：AI 可能没返回所有区域，用默认内容补全
+    default_contents = {
+        '教学目标': '知识与技能：掌握本课核心知识点\n过程与方法：通过合作探究提升学习能力\n情感态度与价值观：培养学习兴趣与科学素养',
+        '教学重难点': '教学重点：本课核心概念与原理\n教学难点：知识的综合应用与迁移',
+        '学情分析': '本班学生基础知识较为扎实，具备一定的自主学习能力，但在知识的综合运用方面仍需加强。',
+        '教学方法': '讲授法、讨论法、探究法、情境教学法相结合',
+        '教学过程': '详见教学过程设计',
+        '导入': '通过情境导入，激发学生学习兴趣，引出本课主题。',
+        '新授': '教师引导学生自主探究新知，逐步掌握核心内容。',
+        '巩固练习': '通过课堂练习巩固所学知识，及时反馈。',
+        '小结': '师生共同总结本课重点内容，梳理知识体系。',
+        '作业布置': '完成课后配套练习，预习下一课内容。',
+        '板书设计': '详见板书设计',
+        '教学反思': '课后根据学生学习情况进行反思与改进。',
+        '时间分配': '导入5分钟｜新授20分钟｜练习10分钟｜小结5分钟',
+        '教具准备': '多媒体课件、教材、黑板',
+        '教学媒体': '多媒体课件、投影仪',
+        '基本信息': '学科：\t年级：\t课题：',
+        '待确认': '（内容由教师补充）',
+    }
+    for region_id, region_info in structure_map.items():
+        if region_id not in content_mapping:
+            rtype = region_info.get('region_type', '待确认')
+            content_mapping[region_id] = default_contents.get(rtype, '（AI 未生成此区域内容，请手动补充）')
+
+    return jsonify({
+        "ok": True,
+        "content_mapping": content_mapping,
+        "total_regions": len(content_mapping),
+    })
+
 
 MODULES_DATA = {
     "ppt_generate": {
@@ -2168,44 +3432,117 @@ MODULES_DATA = {
             {"title": "勾股定理", "desc": "动画展示直角三角形三边关系；导图含定理/证明/应用/拓展", "prompt": "勾股定理"}
         ],
         "knowledge_points": ["教学动画", "思维导图", "PPT素材", "知识点可视化", "HTML5动画", "Markmap导图", "学科建模", "课堂演示", "教师提效"]
+    },
+    "exam_paper": {
+        "name": "试卷生成",
+        "emoji": "📝",
+        "short_desc": "AI智能生成试卷，支持多题型、难度分级",
+        "description": "AI 智能生成试卷，支持多学科、多题型、难度分级",
+        "type": "exam",
+        "subject": "全学科",
+        "grade_levels": ["小学", "初中", "高中", "职业院校"],
+        "features": [
+            "📚 多学科支持 - 语文、数学、英语、物理、化学等全学科覆盖",
+            "📋 丰富题型 - 选择题、填空题、判断题、解答题等多种题型",
+            "🎯 难度分级 - 简单/中等/困难三档难度自由选择",
+            "📊 智能配分 - 自动根据题型和题量分配分值",
+            "✅ 答案解析 - 自动生成详细答案和解题思路",
+            "📥 一键导出 - 支持导出Word文档和PDF，方便打印使用"
+        ],
+        "examples": [
+            {"title": "一元二次方程", "desc": "初中数学章节测试卷，含选择/填空/解答题", "prompt": "一元二次方程"},
+            {"title": "牛顿运动定律", "desc": "高一物理单元测验，含答案解析", "prompt": "牛顿运动定律"},
+            {"title": "一般过去时", "desc": "初中英语语法专项试卷", "prompt": "一般过去时"}
+        ],
+        "knowledge_points": ["试卷生成", "智能出题", "答案解析", "章节测试", "单元测验", "期中期末", "模拟考试", "教师备课", "自动组卷"]
     }
 }
 
-@app.route("/visual")
-def visual_redirect():
-    return redirect(url_for('module_detail', module_id='visualization'))
+# 注册试卷生成模块路由
+register_exam_routes(
+    app=app,
+    get_current_user_func=get_current_user,
+    database_mod=database,
+    api_key=API_KEY,
+    base_url=BASE_URL,
+    model_name=MODEL,
+    get_user_output_dir_func=get_user_output_dir,
+)
+
+# 注册可视化生成模块路由
+def _get_openai_client():
+    from openai import OpenAI
+    return OpenAI(api_key=API_KEY, base_url=BASE_URL)
+
+register_visual_routes(
+    app=app,
+    get_current_user=get_current_user,
+    safe_get_json=safe_get_json,
+    database=database,
+    openai_client_factory=_get_openai_client,
+    model_name=MODEL,
+    modules_data=MODULES_DATA,
+    qwen_image_api_key=QWEN_IMAGE_API_KEY,
+    image_search_provider=IMAGE_SEARCH_PROVIDER,
+    image_search_api_key=IMAGE_SEARCH_API_KEY,
+)
+
+PUBLIC_MODULES = {"exam_paper"}
 
 @app.route("/module/<module_id>")
 def module_detail(module_id):
     user = get_current_user()
-    if not user:
+    if not user and module_id not in PUBLIC_MODULES:
         print(f"[module_detail] 用户未登录，重定向到登录页")
-        return redirect(url_for('login'))
-    print(f"[module_detail] 用户: {user['username']}, module_id: {module_id}")
-    
+        return redirect(url_for('login', next=request.path))
+    if user:
+        print(f"[module_detail] 用户: {user['username']}, module_id: {module_id}")
+    else:
+        print(f"[module_detail] 公开模块免登录访问: {module_id}")
+
     if module_id not in MODULES_DATA:
         print(f"[module_detail] 模块不存在: {module_id}")
         return redirect(url_for('index'))
     module = MODULES_DATA[module_id]
-    
+
     if module_id == "visualization":
         try:
             all_modules = [{"id": k, "name": v["name"], "emoji": v["emoji"]} for k, v in MODULES_DATA.items()]
             print(f"[module_detail] 渲染可视化页面，模块名称: {module['name']}")
+            username_display = user['username'] if user else '游客'
             return render_template(
                 "module_visual.html",
                 module=module,
                 module_id=module_id,
                 model=MODEL,
-                username=user['username'],
+                username=username_display,
                 all_modules=all_modules
             )
         except Exception as e:
             import traceback
             traceback.print_exc()
             print(f"[module_detail] 渲染可视化页面失败: {e}")
-            return f"渲染失败: {str(e)}", 500
-    
+            return f"渲染失败", 500
+
+    if module_id == "exam_paper":
+        try:
+            all_modules = [{"id": k, "name": v["name"], "emoji": v["emoji"]} for k, v in MODULES_DATA.items()]
+            print(f"[module_detail] 渲染试卷生成页面，模块名称: {module['name']}")
+            username_display = user['username'] if user else '游客'
+            return render_template(
+                "module_exam.html",
+                module=module,
+                module_id=module_id,
+                model=MODEL,
+                username=username_display,
+                all_modules=all_modules
+            )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"[module_detail] 渲染试卷生成页面失败: {e}")
+            return f"渲染失败", 500
+
     all_modules = [{"id": k, "name": v["name"], "emoji": v["emoji"]} for k, v in MODULES_DATA.items()]
     history_sessions = []
     if module_id == "history":
@@ -2215,6 +3552,9 @@ def module_detail(module_id):
                 "ppt_outline":          {"name": "PPT讲解纲要", "emoji": "📝", "color": "#f093fb", "gradient": "linear-gradient(135deg,#f093fb 0%,#f5576c 100%)"},
                 "lesson_plan_generate": {"name": "教案生成",     "emoji": "📘", "color": "#4facfe", "gradient": "linear-gradient(135deg,#4facfe 0%,#00f2fe 100%)"},
                 "exercise_generate":    {"name": "习题生成",     "emoji": "📚", "color": "#43e97b", "gradient": "linear-gradient(135deg,#43e97b 0%,#38f9d7 100%)"},
+                # 修复 B6：补充与 MODULES_DATA 一致的键名（lesson_plan / exercises），避免历史记录匹配回退到 general
+                "lesson_plan":           {"name": "教案生成",     "emoji": "📘", "color": "#4facfe", "gradient": "linear-gradient(135deg,#4facfe 0%,#00f2fe 100%)"},
+                "exercises":             {"name": "习题生成",     "emoji": "📚", "color": "#43e97b", "gradient": "linear-gradient(135deg,#43e97b 0%,#38f9d7 100%)"},
                 "homework_analysis":    {"name": "作业分析",     "emoji": "📊", "color": "#fa709a", "gradient": "linear-gradient(135deg,#fa709a 0%,#fee140 100%)"},
                 "history":              {"name": "历史记录",     "emoji": "📜", "color": "#a8edea", "gradient": "linear-gradient(135deg,#a8edea 0%,#fed6e3 100%)"},
                 "visualization":        {"name": "可视化生成",   "emoji": "🎬", "color": "#8b5cf6", "gradient": "linear-gradient(135deg,#8b5cf6 0%,#ec4899 100%)"},
@@ -2279,573 +3619,755 @@ def module_detail(module_id):
         history_sessions=history_sessions
     )
 
-@app.route("/api/visual/generate", methods=["POST"])
-def api_visual_generate():
+
+
+def get_client_ip():
+    return _get_client_ip()
+
+
+def is_admin_logged_in():
+    admin_token = request.cookies.get('admin_token')
+    return admin_token and admin_token == ADMIN_TOKEN_VALUE
+
+
+def admin_identity():
+    """从 cookie 或临时标记获取当前管理员用户名"""
+    # TODO: 安全风险 - 应从服务端会话反查，当前直接信任客户端 cookie 可被伪造（已知限制，需数据库改动后修复）
+    return request.cookies.get('admin_user') or 'unknown'
+
+
+def admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not is_admin_logged_in():
+            return jsonify({"error": "未授权"}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route("/admin")
+def admin_login_page():
+    if is_admin_logged_in():
+        return redirect(url_for('admin_dashboard'))
+    return render_template("admin_login.html")
+
+
+@app.route("/admin/login", methods=["POST"])
+def admin_login():
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
+
+    username = data.get("username")
+    password = data.get("password")
+    ip = get_client_ip()
+
+    if not _check_login_rate_limit(ip, username or ''):
+        return jsonify({"error": "登录尝试过多，请15分钟后再试"}), 429
+
+    if _verify_admin_password(username, password):
+        _clear_login_failures(ip, username or '')
+        database.record_login_attempt(ip, username, success=True)
+        response = jsonify({"status": "success"})
+        is_secure = os.environ.get('FLASK_ENV') == 'production'
+        response.set_cookie('admin_token', ADMIN_TOKEN_VALUE, httponly=True, secure=is_secure,
+                            samesite='Lax', max_age=86400)
+        response.set_cookie('admin_user', username, httponly=True, secure=is_secure,
+                            samesite='Lax', max_age=86400)
+        database.log_admin_action(username, "login", details="管理员登录", ip_address=ip)
+        return response
+    else:
+        _record_login_failure(ip, username or '')
+        database.record_login_attempt(ip, username or '', success=False)
+        return jsonify({"error": "用户名或密码错误"}), 401
+
+
+@app.route("/admin/dashboard")
+def admin_dashboard():
+    if not is_admin_logged_in():
+        return redirect(url_for('admin_login_page'))
+    return render_template("admin_users.html")
+
+
+@app.route("/admin/logout", methods=["POST"])
+def admin_logout():
+    admin = admin_identity()
+    database.log_admin_action(admin, "logout", details="管理员退出登录", ip_address=get_client_ip())
+    response = make_response(jsonify({"status": "success"}))
+    _clear_auth_cookies(response)
+    return response
+
+
+@app.route("/admin/api/stats", methods=["GET"])
+@admin_required
+def admin_get_stats():
     try:
-        print(f"[api_visual_generate] 请求收到")
-        user = get_current_user()
-        print(f"[api_visual_generate] 当前用户: {user}")
-        if not user:
-            return jsonify({"success": False, "error": "请先登录"}), 401
-    
-        data = safe_get_json()
-        print(f"[api_visual_generate] 请求数据: {data}")
-        if not data:
-            return jsonify({"success": False, "error": "无效请求"}), 400
-        
-        topic = data.get("topic", "").strip()
-        gen_type = data.get("type", "mindmap")
-        layout = data.get("layout", "logic")
-        
-        if not topic:
-            return jsonify({"success": False, "error": "请输入课程主题"}), 400
-        
-        client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
-        
-        if gen_type == "mindmap":
-            # 根据布局类型生成不同的prompt
-            if layout == "tree":
-                layout_desc = "组织结构图/树状图"
-                format_hint = """# 角色定义
-你是一位精通组织管理与信息分类的可视化专家。你必须严格区分并遵循「组织结构图」与「树状图」的专属规范，禁止将其与流程图、概念图或发散式思维导图混淆。
-
-# 核心定义
-- 组织结构图（Org Chart）：以垂直自上而下为主，展示职位/部门间的汇报、隶属与管理跨度关系，强调权责层级。
-- 树状图（Tree Diagram）：可垂直或水平展开，展示事物的分类、组成或分解关系，强调MECE（相互独立、完全穷尽）原则。
-
-# 格式规范（必须100%遵守）
-1. 使用 Mermaid flowchart TD（自上而下）格式
-2. 节点形状：仅允许矩形方框 []，根节点/高管节点可用加粗边框，禁止圆形、椭圆、菱形、云朵形、圆角矩形
-3. 连线样式：仅允许直线 --> 表示父子关系，禁止曲线、波浪线、虚线
-4. 布局方向：强制自上而下（TD），同一层级节点水平对齐，上级居中于下级上方
-5. 层级表达：通过分支位置体现父子级，最多3-4级深度，跨级连接需标注说明
-6. 文字规范：节点内文字≤8字，名词/职位名称优先，禁止动词长句、解释性描述
-7. 至少3-5个一级分支，每个分支下有2-4个子节点
-8. 同级节点必须严格对齐，禁止斜线连接"""
-                output_format = "mermaid"
-            elif layout == "rect":
-                layout_desc = "矩形思维导图"
-                format_hint = """# 角色定义
-你是一位精通结构化思维的可视化专家。当用户提到“矩形思维导图”时，你必须将其理解为「以矩形为节点、直线为连接的层级拆解图」，禁止生成传统曲线发散式思维导图。
-
-# 核心定义
-矩形思维导图 = 思维导图的层级逻辑 + 逻辑图的视觉规范。
-它用于对主题进行MECE拆解、分类归纳或流程梳理，强调结构的严谨性与信息的可读性，而非创意发散。
-
-# 格式规范（必须100%遵守）
-1. 使用 Mermaid flowchart LR（左→右）格式，内容较多时可用TD（上→下）
-2. 节点形状：所有节点（含中心主题）均为矩形方框 []，禁止圆形、椭圆、云朵形、圆角矩形
-3. 连线样式：仅允许直线 --> 表示父子关系，禁止任何曲线、波浪线、手绘线条
-4. 布局方向：优先左→右展开（中心主题在最左侧），内容较多时可用上→下；禁止中心辐射状布局
-5. 对齐规则：同级节点严格垂直/水平对齐，父子节点间距一致，整体呈现网格化秩序感
-6. 文字规范：节点内文字≤8字，关键词/短语优先，禁止长句、解释性描述、emoji
-7. 至少3-5个一级分支，每个分支下有2-4个子节点
-8. 同级节点必须严格对齐，禁止斜线连接"""
-                output_format = "mermaid"
-            else:
-                layout_desc = "逻辑图/逻辑结构图，以矩形方框为节点、直线/直角折线为连接、从左到右或从上到下呈现层级递进关系的结构化图表，强调因果、流程、分类或组成关系"
-                format_hint = """格式要求（必须100%遵守）：
-1. 使用 Mermaid flowchart LR（从左到右）格式
-2. 节点形状：仅允许矩形方框 []，禁止圆形、椭圆、云朵形、圆角矩形、手绘边框
-3. 连线样式：仅允许直线 --> 或直角折线 ---，禁止曲线、波浪线；备选路径用虚线 -.-> 表示
-4. 布局方向：仅允许左→右（LR）或上→下（TD），禁止中心辐射、环形、自由散点布局
-5. 层级表达：通过分支位置体现父子级，同一层级节点水平/垂直对齐
-6. 文字规范：节点内文字≤10字，动宾结构优先，禁止长句、解释性描述"""
-                output_format = "mermaid"
-
-            if output_format == "mermaid":
-                if layout == "tree":
-                    prompt = f"""请为课程主题"{topic}"生成一个{layout_desc}的Mermaid流程图。
-
-{format_hint}
-
-# 正例格式锚点（必须模仿此结构）
-
-【组织结构图示例】
-flowchart TD
-    A[总经理] --> B[市场部]
-    A --> C[技术部]
-    A --> D[人事部]
-    B --> E[品牌组]
-    B --> F[推广组]
-    C --> G[后端组]
-    C --> H[前端组]
-
-【树状图示例】
-flowchart TD
-    A[电子产品] --> B[手机]
-    A --> C[电脑]
-    B --> D[智能手机]
-    B --> E[功能手机]
-    C --> F[笔记本]
-    C --> G[台式机]
-
-# 反例（禁止生成）
-- 用箭头表示"市场部→技术部"的协作关系（× 这是流程图）
-- 中心写"公司"，四周发散出各部门曲线分支（× 传统思维导图）
-- 同级节点未对齐、连线为斜线或曲线（× 非标准树状结构）
-- 节点内写"负责产品推广与品牌建设"等长句（× 违反文字规范）
-- 使用()、{{}}、>等非矩形节点形状（× 违反节点形状规范）
-
-# 执行指令
-1. 先判断场景：涉及职位/汇报→组织结构图；涉及分类/拆解→树状图
-2. 输出时必须严格按上述正例格式锚点的结构呈现
-3. 若课程内容不满足MECE或层级混乱，主动调整使分类相互独立、完全穷尽
-4. 强制采用自上而下布局（TD），永远不要使用LR/RL/BT
-5. 永远不要添加"如图所示""参见下图"等无法渲染的描述，仅输出结构化文本
-6. 节点文字必须≤8字，名词优先，禁止动词长句
-
-直接输出Mermaid代码，不要其他解释，不要代码块包裹
-
-节点命名规则：使用A、B、C等字母作为节点ID，方括号内写中文内容（≤8字）。
-连接线规则：仅使用-->表示父子隶属关系，禁止曲线和虚线。
-至少3-5个核心节点，形成完整的层级结构。
-"""
-                elif layout == "rect":
-                    prompt = f"""请为课程主题"{topic}"生成一个{layout_desc}的Mermaid流程图。
-
-{format_hint}
-
-# 正例格式锚点（必须模仿此结构）
-
-【左→右矩形思维导图示例】
-flowchart LR
-    A[新媒体运营] --> B[内容生产]
-    A --> C[渠道分发]
-    A --> D[数据复盘]
-    B --> E[选题策划]
-    B --> F[脚本撰写]
-    B --> G[视觉设计]
-    G --> H[封面制作]
-    G --> I[排版美化]
-    C --> J[微信公众号]
-    C --> K[视频号]
-    C --> L[小红书]
-    D --> M[阅读量分析]
-    D --> N[转化率优化]
-
-【上→下矩形思维导图示例（适用于宽层级）】
-flowchart TD
-    A[年度营销计划] --> B[Q1拉新]
-    A --> C[Q2留存]
-    A --> D[Q3变现]
-    B --> E[社媒投放]
-    B --> F[KOL合作]
-    C --> G[会员体系]
-    D --> H[直播带货]
-    D --> I[私域转化]
-
-# 反例（禁止生成）
-- 中心写"运营"，四周用曲线发散出"内容""渠道"等分支（× 传统博赞式思维导图）
-- 节点为圆角矩形或带阴影立体效果（× 非标准矩形）
-- 同级节点未对齐、连线为斜线或自由曲线（× 失去网格秩序）
-- 节点内写"负责公众号推文撰写与排版"等长句（× 违反文字规范）
-- 使用()、{{}}、>等非矩形节点形状（× 违反节点形状规范）
-
-# 执行指令
-1. 自动将需求转换为左→右或上→下的矩形层级结构
-2. 输出时必须严格按格式锚点的符号与对齐方式呈现
-3. 若用户提供的内容存在层级交叉或非MECE问题，主动指出并建议调整后再输出
-4. 优先采用左→右布局（LR），分支较多时可用上→下（TD）
-5. 永远不要添加"如图所示""见下图"等无法渲染的描述，仅输出纯结构化文本
-6. 节点文字必须≤8字，关键词/短语优先，禁止长句、解释性描述、emoji
-
-直接输出Mermaid代码，不要其他解释，不要代码块包裹
-
-节点命名规则：使用A、B、C等字母作为节点ID，方括号内写中文内容（≤8字）。
-连接线规则：仅使用-->表示父子关系，禁止曲线和虚线。
-至少3-5个核心节点，形成完整的层级结构。
-"""
-                else:
-                    prompt = f"""请为课程主题"{topic}"生成一个{layout_desc}的Mermaid流程图。
-
-{format_hint}
-
-正例（逻辑图）：
-flowchart LR
-    A[用户注册] --> B[手机号验证] --> C[设置密码] --> D[完成注册]
-    B -.-> E[邮箱验证]
-
-反例（禁止生成）：
-- 中心写"注册"，四周发散出"手机""邮箱""密码"等曲线分支（× 传统思维导图）
-- 用圆角矩形+箭头表示"验证成功/失败"的判断菱形（× 流程图）
-- 节点为手绘体圆圈，连线为彩色曲线（× 博赞式思维导图）
-
-执行指令：
-1. 先确认内容是否适合逻辑图（若为纯创意发散，主动建议改用其他形式）
-2. 输出时必须严格按上述格式规范组织文本结构
-3. 默认采用左→右布局（LR）
-4. 永远不要添加"如图所示""参见下图"等无法渲染的描述
-
-直接输出Mermaid代码，不要其他解释，不要代码块包裹
-
-节点命名规则：使用A、B、C等字母，或简短中文（不超过4字）。
-连接线规则：使用-->表示主要路径，-.->表示备选路径。
-至少3-5个核心节点，形成完整的逻辑链。
-"""
-            else:
-                prompt = f"""请为课程主题"{topic}"生成一个{layout_desc}的Markdown思维导图，{format_hint}
-
-直接输出Markdown，不要其他解释，不要代码块包裹
-
-示例格式：
-# {topic}
-- 核心概念1
-  - 细节1
-  - 细节2
-- 核心概念2
-  - 细节1
-  - 细节2
-"""
-            response = client.chat.completions.create(
-                model=MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=2000
-            )
-            content = response.choices[0].message.content.strip()
-            
-            content = re.sub(r'^```\w*\s*', '', content)
-            content = re.sub(r'\s*```$', '', content)
-            
-            if output_format == "markdown" and not content.startswith('#'):
-                content = f"# {topic}\n" + content
-            
-            database.save_search_history(user['id'], f"可视化生成-思维导图({layout})：{topic}")
-            
-            return jsonify({
-                "success": True,
-                "type": "mindmap",
-                "layout": layout,
-                "format": output_format,
-                "content": content
-            })
-            
-        elif gen_type == "animation":
-            if QWEN_IMAGE_API_KEY:
-                try:
-                    import dashscope
-                    from dashscope import ImageSynthesis
-
-                    dashscope.api_key = QWEN_IMAGE_API_KEY
-
-                    anim_prompt = f"""教学主题"{topic}"的教学演示插图，用于课件展示，风格：教育类插画，清晰简洁，适合课堂教学使用"""
-
-                    result = ImageSynthesis.call(
-                        model=ImageSynthesis.Models.wanx_v1,
-                        prompt=anim_prompt,
-                        n=1,
-                        size='1280*720'
-                    )
-
-                    if result.status_code == 200 and result.output and result.output.task_status == 'SUCCEEDED' and result.output.results:
-                        image_url = result.output.results[0].url
-
-                        anim_html = f'''<div class="classroom-animation" style="width:500px;height:320px;background:transparent;display:flex;align-items:center;justify-content:center;">
-                            <img src="{image_url}" alt="{topic}" style="max-width:100%;max-height:100%;border-radius:8px;" />
-                        </div>'''
-
-                        database.save_search_history(user['id'], f"可视化生成-Qwen图像：{topic}")
-
-                        return jsonify({
-                            "success": True,
-                            "type": "animation",
-                            "format": "html",
-                            "html": anim_html,
-                            "image_url": image_url
-                        })
-                    else:
-                        print(f"[api_visual_generate] Qwen-Image生成失败: {result}")
-                except Exception as e:
-                    print(f"[api_visual_generate] Qwen-Image调用异常: {e}")
-            
-            search_images = []
-            if IMAGE_SEARCH_PROVIDER:
-                try:
-                    import requests
-                    
-                    search_query = topic
-                    if IMAGE_SEARCH_PROVIDER.lower() == "unsplash":
-                        url = f"https://api.unsplash.com/search/photos?query={requests.utils.quote(search_query)}&per_page=3"
-                        headers = {"Authorization": f"Client-ID {IMAGE_SEARCH_API_KEY}"} if IMAGE_SEARCH_API_KEY else {}
-                        response = requests.get(url, headers=headers, timeout=10)
-                        if response.status_code == 200:
-                            data = response.json()
-                            if data.get("results"):
-                                search_images = [img["urls"]["regular"] for img in data["results"][:3]]
-                    elif IMAGE_SEARCH_PROVIDER.lower() == "pexels":
-                        url = f"https://api.pexels.com/v1/search?query={requests.utils.quote(search_query)}&per_page=3"
-                        headers = {"Authorization": IMAGE_SEARCH_API_KEY} if IMAGE_SEARCH_API_KEY else {}
-                        response = requests.get(url, headers=headers, timeout=10)
-                        if response.status_code == 200:
-                            data = response.json()
-                            if data.get("photos"):
-                                search_images = [img["src"]["medium"] for img in data["photos"][:3]]
-                    
-                    if search_images:
-                        print(f"[api_visual_generate] 搜索到{len(search_images)}张图片: {search_images}")
-                except Exception as e:
-                    print(f"[api_visual_generate] 图片搜索失败: {e}")
-            
-            image_prompt = ""
-            if search_images:
-                image_prompt = f"""
-
-# 可用图片素材（在动画中合理使用这些图片）
-以下是搜索到的相关图片URL，请在动画中使用<img>标签引用：
-{chr(10).join([f"- 图片{i+1}: {url}" for i, url in enumerate(search_images)])}
-
-使用示例：<img src="图片URL" style="width:100px;height:auto;" />
-"""
-
-            if "勾股定理" in topic:
-                anim_prompt = f"""请为数学课程"{topic}"生成一个科学准确的几何演示动画HTML代码。
-
-# 勾股定理可视化（a² + b² = c²）
-
-## 核心几何原理
-直角三角形两直角边分别为a和b，斜边为c，则 a² + b² = c²。
-动画必须清晰展示：两个直角边上的正方形面积之和等于斜边上的正方形面积。
-
-## 构图要求
-
-### 1. 直角三角形（底部中央）
-- 放置在坐标系第一象限
-- 直角顶点在原点(0,0)附近
-- 底边a沿x轴方向（蓝色）
-- 高边b沿y轴方向（红色）
-- 斜边c（黑色粗线）
-- 直角标记（小正方形或直角符号）
-
-### 2. 三个正方形（必须准确构造）
-- **a边上的正方形**：沿x轴，边长=a，蓝色填充，面积标注a²
-- **b边上的正方形**：沿y轴，边长=b，红色填充，面积标注b²
-- **c边上的正方形**：以斜边c为一条边的正方形，绿色填充，面积标注c²
-
-### 3. c边上正方形的几何构造（非常重要！必须按向量法构造）
-设斜边端点为A(x1,y1)和C(x2,y2)：
-- 向量 v = (x2-x1, y2-y1)
-- 边长 c = sqrt((x2-x1)² + (y2-y1)²)
-- 垂直向量 n = (-v.y, v.x) = (y1-y2, x2-x1)
-- 正方形四个顶点：A, C, C+n, A+n
-- 使用SVG <polygon>或<path>绘制
-- **禁止**使用"以中点为中心旋转的轴对齐正方形"的错误方法
-
-## 动画效果（CSS动画，无限循环）
-1. **面积闪烁**：三个正方形依次高亮闪烁（a²→b²→c²→a²），配合文字标注
-2. **面积累加**：a²和b²的面积块依次"移动"到c²位置，演示a²+b²=c²
-3. **勾股公式显示**：底部公式"a² + b² = c²"逐字显示或闪烁高亮
-4. **边长标注**：a、b、c三边长依次标注，箭头指示
-
-## 尺寸与布局
-- viewBox="0 0 500 320"
-- 直角三角形底边a=120px，高b=90px（3:4:5比例），斜边c=150px
-- 直角顶点坐标(80, 200)
-- 底边终点(200, 200)
-- 高边终点(80, 110)
-- 斜边端点(80, 110)到(200, 200)
-- 文字标注清晰，字体大小12-14px
-
-## 色彩规范
-- 底边a及正方形：蓝色 #3498DB
-- 高边b及正方形：红色 #E74C3C
-- 斜边c及正方形：绿色 #27AE60
-- 文字：深灰 #333
-- 背景：透明
-
-## 格式规范
-1. 输出纯HTML代码，包含在<div class="classroom-animation">中
-2. CSS放在<style>标签内，SVG直接内联
-3. 动画自动循环（animation-iteration-count: infinite）
-4. 背景透明
-5. 禁止使用JavaScript
-6. SVG必须使用精确的几何计算，不能有视觉误差
-
-## 几何验证检查
-1. 三个正方形的面积是否满足a²+b²=c²？
-2. c边上的正方形是否以斜边为一条边？（不是旋转的轴对齐正方形）
-3. 直角标记是否清晰？
-4. 公式"a² + b² = c²"是否准确标注？
-
-直接输出HTML代码，不要其他解释。
-""" + image_prompt
-            else:
-                anim_prompt = f"""请为理科课程主题"{topic}"生成一个具有教学逻辑性的课堂演示动画HTML代码。
-
-# 角色定义
-你是一位擅长用SVG+CSS动画演示理科教学逻辑的专业课件动画师。你必须使用内联SVG绘制精细的教学图形，配合CSS动画展示知识点的逻辑关系、过程演变或因果关系。本动画主要服务于理科教学（物理、化学、数学、生物）。
-
-# 核心原则（必须遵守）
-- **必须使用SVG内联绘图**来绘制教学图形（分子结构、电路图、几何图形、实验装置、生物细胞等）
-- SVG图形必须精细、美观、专业，像教科书插图一样清晰
-- **动画必须具有教学逻辑性**，展示因果关系、演变过程、步骤流程或对比关系
-- 动画是理科教学演示工具，必须能帮助学生理解"{topic}"的核心概念
-- 逻辑清晰：从起点→过程→结果，或从问题→分析→结论的完整逻辑链条
-- 背景必须透明，便于嵌入PPT
-
-# SVG绘图要求（非常重要！）
-- 所有的教学图形、实验装置、分子结构、几何图形等必须用内联<svg>标签绘制
-- SVG必须设置viewBox属性，推荐viewBox="0 0 500 320"
-- SVG元素使用stroke和fill设置颜色，stroke-width设置线宽
-- 用<circle>画圆、<rect>画矩形、<line>画直线、<path>画曲线、<polygon>/<polyline>画多边形
-- 用<text>添加标注文字，设置font-size和fill颜色
-- 用<g>标签分组，配合CSS动画让整个组动起来
-- 用<defs>和<marker>定义箭头等可复用元素
-- SVG图形要专业精细，线条流畅，颜色协调，不要画简陋的火柴人
-
-# 理科SVG绘图示例（主要服务以下学科）
-
-**物理**：用SVG画弹簧+方块（弹簧用<path>的正弦曲线）、斜面+方块、电路图（<rect>电阻+<line>导线+<circle>电池）、光的折射（<line>入射光+折射光+<rect>界面）、磁场线（<path>曲线+箭头）、波动图（<path>正弦波）
-
-**化学**：用SVG画分子结构（<circle>原子+<line>化学键）、烧杯试管（<rect>+<path>液面）、电子云（<circle>不同透明度的圆叠加）、反应方程式（<text>+上下标）、原子结构（<circle>原子核+<ellipse>电子轨道）
-
-**数学**：用SVG画坐标系（<line>坐标轴+<text>刻度）、函数曲线（<path>贝塞尔曲线）、几何图形（<polygon>+标注）、数列变化（<rect>柱状图+动画）、导数/积分示意（<path>曲线+<rect>面积）
-
-**生物**：用SVG画细胞结构（<circle>细胞膜+<circle>细胞核+<rect>线粒体）、DNA双螺旋（<path>两条螺旋线+<line>碱基对）、光合作用（<circle>叶绿体+<path>光能+<text>产物）、细胞分裂（<circle>动态分裂过程）
-
-# 理科教学逻辑动画类型
-
-【类型1：过程演示型】适用于物理实验、化学反应、生物生长等
-示例结构：SVG绘制起点状态 → CSS动画过渡 → SVG绘制终态（循环）
-例：化学反应H₂+O₂→H₂O、细胞分裂过程、电路通电过程
-
-【类型2：因果关系型】适用于物理原理、化学规律、生物机制等
-示例结构：SVG绘制原因/条件 → 动画展示作用机制 → SVG绘制结果/现象
-例：力→加速度→速度变化、温度升高→分子运动加快→状态改变
-
-【类型3：对比演示型】适用于概念辨析、正确vs错误、变量对比等
-示例结构：SVG左侧画A + SVG右侧画B → 动态高亮差异
-例：光合作用vs呼吸作用、串联vs并联电路、酸性vs碱性
-
-【类型4：循环系统型】适用于物质循环、能量循环、生物循环等
-示例结构：SVG画各环节 → 依次高亮激活 → 形成循环回路
-例：碳循环、水循环、能量流动、细胞呼吸链
-
-【类型5：层级展开型】适用于知识结构、分类体系、公式推导等
-示例结构：SVG从中心向外逐层展开
-例：生物分类树、数学公式推导步骤、物质分类体系
-
-# 格式规范（必须100%遵守）
-1. 输出纯HTML代码，不要markdown代码块包裹
-2. 代码必须包含在 <div class="classroom-animation"> 中
-3. CSS样式放在 <style> 标签内，SVG图形直接内联
-4. 动画必须是自动循环播放的（animation-iteration-count: infinite）
-5. 背景色必须设为透明（background: transparent）
-6. 整体尺寸限制在 500px 宽 × 320px 高以内
-7. 文字使用中文，简短明确（关键词≤6字），字体大小12-16px
-8. 可以使用提供的图片素材（通过<img>标签引用），禁止使用其他外部字体、JS库资源
-9. 禁止使用JavaScript，仅用CSS animation/transition实现动画
-10. SVG图形必须标注教学含义（如受力标注F、加速度标注a等）
-11. 逻辑链条必须清晰可见，用动画顺序或位置关系体现因果/过程
-
-# 正例格式锚点
-
-【示例：牛顿第二定律因果链】
-<div class="classroom-animation" style="width:500px;height:320px;...">
-  <style>
-    @keyframes pushForce {{ from {{ transform: translateX(0); }} to {{ transform: translateX(30px); }} }}
-    @keyframes moveBlock {{ from {{ transform: translateX(0); }} to {{ transform: translateX(80px); }} }}
-    .force-arrow {{ animation: pushForce 2s ease-in-out infinite alternate; }}
-    .block {{ animation: moveBlock 2s ease-in-out infinite alternate; }}
-  </style>
-  <svg viewBox="0 0 500 320" width="500" height="320">
-    <!-- 地面 -->
-    <line x1="20" y1="220" x2="480" y2="220" stroke="#888" stroke-width="2"/>
-    <!-- 方块 -->
-    <g class="block">
-      <rect x="120" y="170" width="60" height="50" fill="#4A90D9" rx="4"/>
-      <text x="150" y="200" text-anchor="middle" fill="white" font-size="14">m</text>
-    </g>
-    <!-- 力的箭头 -->
-    <g class="force-arrow">
-      <line x1="60" y1="195" x2="115" y2="195" stroke="#E74C3C" stroke-width="3" marker-end="url(#arrowhead)"/>
-      <text x="85" y="185" text-anchor="middle" fill="#E74C3C" font-size="14" font-weight="bold">F</text>
-    </g>
-    <!-- 箭头定义 -->
-    <defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#E74C3C"/></marker></defs>
-    <!-- 公式标注 -->
-    <text x="250" y="280" text-anchor="middle" fill="#333" font-size="16" font-weight="bold">F = ma</text>
-  </svg>
-</div>
-
-【示例：化学反应过程】
-<div class="classroom-animation" style="...">
-  <style>
-    @keyframes bond {{ from {{ opacity:1; }} to {{ opacity:0; }} }}
-    @keyframes newBond {{ from {{ opacity:0; }} to {{ opacity:1; }} }}
-    .old-bond {{ animation: bond 3s ease-in-out infinite; }}
-    .new-bond {{ animation: newBond 3s ease-in-out 1.5s infinite; }}
-  </style>
-  <svg viewBox="0 0 500 320" width="500" height="320">
-    <g class="old-bond">
-      <circle cx="150" cy="160" r="25" fill="#E74C3C"/><text x="150" y="165" text-anchor="middle" fill="white" font-size="14">H₂</text>
-      <circle cx="350" cy="160" r="25" fill="#3498DB"/><text x="350" y="165" text-anchor="middle" fill="white" font-size="14">O₂</text>
-    </g>
-    <text x="250" y="165" text-anchor="middle" fill="#333" font-size="20">→</text>
-    <g class="new-bond">
-      <circle cx="250" cy="160" r="30" fill="#2ECC71"/><text x="250" y="165" text-anchor="middle" fill="white" font-size="14">H₂O</text>
-    </g>
-    <text x="250" y="270" text-anchor="middle" fill="#333" font-size="14">2H₂+O₂→2H₂O</text>
-  </svg>
-</div>
-
-# 反例（禁止生成）
-- 用CSS div方块画教学图形（× 必须用SVG画精细图形）
-- 纯装饰性动画：花瓣飘落、星星闪烁（× 无教学意义）
-- 简陋火柴人/粗糙贴图式图形（× SVG要精细专业）
-- 纯文字静态展示（× 必须有动画效果）
-- 包含JavaScript代码（× 纯CSS动画）
-- 背景不透明（× 必须透明）
-- 使用未提供的外部图片URL（× 只能使用提供的图片素材）
-- 文科类动画（× 本模块专注理科：物理/化学/数学/生物）
-
-# 动画设计检查清单
-1. 是否使用了SVG绘制精细教学图形？
-2. 这个动画展示了"{topic}"的什么理科核心逻辑？
-3. 学生看完能理解哪个知识点？
-4. SVG图形是否专业清晰，像教科书插图？
-5. 逻辑链条是否清晰（起点→过程→结果）？
-
-直接输出HTML代码，不要其他解释。
-""" + image_prompt
-            response = client.chat.completions.create(
-                model=MODEL,
-                messages=[{"role": "user", "content": anim_prompt}],
-                temperature=0.7,
-                max_tokens=4096
-            )
-            anim_html = response.choices[0].message.content.strip()
-            
-            anim_html = re.sub(r'^```\w*\s*', '', anim_html)
-            anim_html = re.sub(r'\s*```$', '', anim_html)
-            
-            if 'classroom-animation' not in anim_html:
-                anim_html = f'<div class="classroom-animation" style="width:500px;height:320px;background:transparent;display:flex;align-items:center;justify-content:center;color:#333;font-size:18px;border:2px dashed #ccc;border-radius:12px;">{topic}</div>'
-            
-            database.save_search_history(user['id'], f"可视化生成-教学动画：{topic}")
-            
-            return jsonify({
-                "success": True,
-                "type": "animation",
-                "format": "html",
-                "html": anim_html
-            })
-        else:
-            return jsonify({"success": False, "error": "未知的生成类型"}), 400
+        user_stats = database.get_user_stats()
+        system_stats = database.get_system_stats()
+        activities = database.get_recent_activities(limit=10)
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"[api_visual_generate] 异常: {e}")
-        return jsonify({"success": False, "error": f"生成失败: {str(e)}"}), 500
+        return jsonify({"success": False, "error": "统计数据获取失败"}), 500
+
+    return jsonify({
+        "success": True,
+        "user_stats": user_stats,
+        "system_stats": system_stats,
+        "recent_activities": activities
+    })
+
+
+@app.route("/admin/api/users", methods=["GET"])
+@admin_required
+def admin_get_users_v2():
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    sort_by = request.args.get('sort_by', 'created_at')
+    order = request.args.get('order', 'DESC')
+    search = request.args.get('search', '').strip()
+
+    if page < 1:
+        page = 1
+    if per_page < 5:
+        per_page = 5
+    if per_page > 100:
+        per_page = 100
+
+    result = supabase_client.get_all_users()
+    if result["success"]:
+        users = result["users"]
+        # 客户端分页、搜索、排序
+        if search:
+            kw = search.lower()
+            users = [u for u in users if kw in (u.get('username') or '').lower() or kw in (u.get('email') or '').lower()]
+        users = sorted(users, key=lambda u: u.get(sort_by) or '', reverse=(order.upper() == 'DESC'))
+        total = len(users)
+        start = (page - 1) * per_page
+        end = start + per_page
+        return jsonify({
+            "success": True,
+            "users": users[start:end],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "source": "supabase"
+        })
+    else:
+        local = database.get_all_local_users_paginated(page, per_page, sort_by, order, search)
+        return jsonify({
+            "success": True,
+            "users": local["users"],
+            "total": local["total"],
+            "page": local["page"],
+            "per_page": local["per_page"],
+            "source": "local",
+            "warning": "未配置 Supabase service_role key，当前显示本地数据库中的用户数据"
+        })
+
+
+@app.route("/admin/api/users/export", methods=["GET"])
+@admin_required
+def admin_export_users():
+    result = supabase_client.get_all_users()
+    if result["success"]:
+        users = result["users"]
+        source = "supabase"
+    else:
+        users = database.get_all_local_users()
+        source = "local"
+
+    # 修复 M12：CSV 注入防护，对以 = + - @ 开头的单元格加前缀 '，避免 Excel 公式注入
+    def _csv_escape(value):
+        s = str(value) if value is not None else ''
+        if s and s[0] in ('=', '+', '-', '@'):
+            return "'" + s
+        return s
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["用户ID", "用户名", "邮箱", "角色", "创建时间", "最后登录", "数据源"])
+    for u in users:
+        writer.writerow([
+            _csv_escape(u.get('id', '')),
+            _csv_escape(u.get('username', '')),
+            _csv_escape(u.get('email', '')),
+            _csv_escape('管理员' if u.get('role') == 'admin' else '普通用户'),
+            _csv_escape(u.get('created_at', '')),
+            _csv_escape(u.get('last_sign_in_at', '')),
+            _csv_escape(source)
+        ])
+
+    csv_bytes = output.getvalue().encode('utf-8-sig')
+    filename = f"users_export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return Response(
+        csv_bytes,
+        mimetype='text/csv; charset=utf-8-sig',
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@app.route("/admin/api/users", methods=["POST"])
+@admin_required
+def admin_create_user():
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
+
+    email = data.get("email")
+    password = data.get("password")
+    username = data.get("username")
+    role = data.get("role", "authenticated")
+
+    if not email or not password:
+        return jsonify({"error": "邮箱和密码不能为空"}), 400
+
+    if len(password) < 6:
+        return jsonify({"error": "密码长度至少6位"}), 400
+
+    result = supabase_client.admin_create_user(email, password, username, role)
+    if result["success"]:
+        user = result["user"]
+        conn = sqlite3.connect(database.DB_PATH)
+        cursor = conn.cursor()
+        try:
+            cursor.execute('INSERT OR REPLACE INTO users (user_id, username, email) VALUES (?, ?, ?)',
+                          (user['id'], user['username'] or email.split('@')[0], user['email']))
+            conn.commit()
+        finally:
+            conn.close()
+        database.log_admin_action(
+            admin_identity(), "create_user", target_user_id=user.get('id'),
+            details=f"创建用户 {email} 角色 {role}", ip_address=get_client_ip()
+        )
+        return jsonify({"success": True, "user": user})
+    else:
+        return jsonify({"success": False, "error": result["error"]}), 500
+
+
+@app.route("/admin/api/user/<user_id>", methods=["GET"])
+@admin_required
+def admin_get_user_detail(user_id):
+    # 优先尝试 Supabase，失败则使用本地详情
+    result = supabase_client.get_user_by_id(user_id)
+    if result["success"]:
+        return jsonify({"success": True, "user": result["user"], "source": "supabase"})
+
+    local = database.get_user_detail_with_sessions(user_id)
+    if local:
+        return jsonify({"success": True, "user": local, "source": "local"})
+
+    return jsonify({"success": False, "error": result["error"]}), 404
+
+
+@app.route("/admin/api/users/<user_id>", methods=["DELETE"])
+@admin_required
+def admin_delete_user(user_id):
+    # 防止管理员误删自己：比对用户名/邮箱
+    admin_name = admin_identity()
+    user_result = supabase_client.get_user_by_id(user_id)
+    if user_result.get("success"):
+        target_identity = user_result["user"].get("username") or user_result["user"].get("email") or ''
+    else:
+        local_user = database.get_user_detail_with_sessions(user_id)
+        target_identity = local_user.get("username") or local_user.get("email") or '' if local_user else ''
+    if target_identity and target_identity == admin_name:
+        return jsonify({"success": False, "error": "不能删除当前登录的管理员账号"}), 400
+
+    result = supabase_client.delete_user(user_id)
+    if result["success"]:
+        database.delete_local_user(user_id)
+        database.log_admin_action(
+            admin_identity(), "delete_user", target_user_id=user_id,
+            details="删除用户", ip_address=get_client_ip()
+        )
+        return jsonify({"success": True})
+    else:
+        local_deleted = database.delete_local_user(user_id)
+        if local_deleted:
+            database.log_admin_action(
+                admin_identity(), "delete_user", target_user_id=user_id,
+                details="仅从本地数据库删除用户", ip_address=get_client_ip()
+            )
+            return jsonify({"success": True, "warning": "仅从本地数据库删除，Supabase中的用户未删除"})
+        else:
+            return jsonify({"success": False, "error": result["error"]}), 500
+
+
+def _is_current_admin_user(user_id, admin_name):
+    """检查 user_id 是否对应当前管理员账号"""
+    if not admin_name:
+        return False
+    user_result = supabase_client.get_user_by_id(user_id)
+    if user_result.get("success"):
+        target_identity = user_result["user"].get("username") or user_result["user"].get("email") or ''
+    else:
+        local_user = database.get_user_detail_with_sessions(user_id)
+        target_identity = local_user.get("username") or local_user.get("email") or '' if local_user else ''
+    return target_identity and target_identity == admin_name
+
+
+@app.route("/admin/api/users/batch", methods=["POST"])
+@admin_required
+def admin_batch_operate():
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
+
+    action = data.get("action")
+    user_ids = data.get("user_ids", [])
+    if not user_ids or not isinstance(user_ids, list):
+        return jsonify({"error": "请选择要操作的用户"}), 400
+
+    admin_name = admin_identity()
+    # 过滤掉当前管理员自身
+    user_ids = [uid for uid in user_ids if not _is_current_admin_user(uid, admin_name)]
+
+    success_count = 0
+    failed = []
+
+    if action == "delete":
+        for uid in user_ids:
+            try:
+                res = supabase_client.delete_user(uid)
+                if res["success"]:
+                    database.delete_local_user(uid)
+                    success_count += 1
+                else:
+                    local_deleted = database.delete_local_user(uid)
+                    if local_deleted:
+                        success_count += 1
+                    else:
+                        failed.append({"id": uid, "error": res.get("error", "删除失败")})
+            except Exception as e:
+                failed.append({"id": uid, "error": str(e)})
+        database.log_admin_action(
+            admin_identity(), "batch_delete", details=f"批量删除 {success_count} 个用户",
+            ip_address=get_client_ip()
+        )
+        return jsonify({"success": True, "success_count": success_count, "failed": failed})
+
+    elif action == "role":
+        role = data.get("role")
+        if role not in ["admin", "authenticated"]:
+            return jsonify({"error": "无效的角色类型"}), 400
+        for uid in user_ids:
+            try:
+                res = supabase_client.update_user_role(uid, role)
+                if res["success"]:
+                    success_count += 1
+                else:
+                    failed.append({"id": uid, "error": res.get("error", "切换失败")})
+            except Exception as e:
+                failed.append({"id": uid, "error": str(e)})
+        database.log_admin_action(
+            admin_identity(), "batch_role", details=f"批量切换角色为 {role}，成功 {success_count} 个",
+            ip_address=get_client_ip()
+        )
+        return jsonify({"success": True, "success_count": success_count, "failed": failed})
+
+    return jsonify({"error": "不支持的操作类型"}), 400
+
+
+@app.route("/admin/api/users/<user_id>", methods=["PUT"])
+@admin_required
+def admin_edit_user(user_id):
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
+
+    updates = {}
+    if "email" in data:
+        updates["email"] = data["email"]
+    if "username" in data:
+        updates["username"] = data["username"]
+    if "role" in data:
+        updates["role"] = data["role"]
+
+    if not updates:
+        return jsonify({"error": "没有提供需要更新的字段"}), 400
+
+    # 防止管理员将自己的角色改为普通用户
+    admin_name = admin_identity()
+    if updates.get("role") and updates.get("role") != "admin":
+        user_result = supabase_client.get_user_by_id(user_id)
+        if user_result.get("success"):
+            target_identity = user_result["user"].get("username") or user_result["user"].get("email") or ''
+        else:
+            local_user = database.get_user_detail_with_sessions(user_id)
+            target_identity = local_user.get("username") or local_user.get("email") or '' if local_user else ''
+        if target_identity and target_identity == admin_name:
+            return jsonify({"error": "不能将自己的管理员权限取消"}), 400
+
+    if "email" in updates:
+        result = supabase_client.update_user_email(user_id, updates["email"])
+        if not result["success"]:
+            return jsonify({"success": False, "error": result["error"]}), 500
+
+    if "role" in updates:
+        result = supabase_client.update_user_role(user_id, updates["role"])
+        if not result["success"]:
+            return jsonify({"success": False, "error": result["error"]}), 500
+
+    if "username" in updates:
+        result = supabase_client.admin_update_user_metadata(user_id, {"username": updates["username"]})
+        if not result["success"]:
+            return jsonify({"success": False, "error": result["error"]}), 500
+        conn = sqlite3.connect(database.DB_PATH)
+        cursor = conn.cursor()
+        try:
+            cursor.execute('UPDATE users SET username = ? WHERE user_id = ?', (updates["username"], user_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+    database.log_admin_action(
+        admin_identity(), "edit_user", target_user_id=user_id,
+        details=f"更新字段 {list(updates.keys())}", ip_address=get_client_ip()
+    )
+    return jsonify({"success": True})
+
+
+@app.route("/admin/api/users/<user_id>/password", methods=["POST"])
+@admin_required
+def admin_reset_password(user_id):
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
+
+    new_password = data.get("password")
+    if not new_password:
+        return jsonify({"error": "新密码不能为空"}), 400
+
+    if len(new_password) < 6:
+        return jsonify({"error": "密码长度至少6位"}), 400
+
+    result = supabase_client.admin_update_user_password(user_id, new_password)
+    if result["success"]:
+        database.log_admin_action(
+            admin_identity(), "reset_password", target_user_id=user_id,
+            details="重置用户密码", ip_address=get_client_ip()
+        )
+        return jsonify({"success": True, "message": "密码重置成功"})
+    else:
+        return jsonify({"success": False, "error": result["error"]}), 500
+
+
+@app.route("/admin/api/users/<user_id>/role", methods=["POST"])
+@admin_required
+def admin_change_role(user_id):
+    data = safe_get_json()
+    if not data:
+        return jsonify({"error": "无效的请求格式"}), 400
+
+    role = data.get("role")
+    if role not in ["admin", "authenticated"]:
+        return jsonify({"error": "无效的角色类型"}), 400
+
+    # 防止管理员取消自己的权限
+    if role != "admin":
+        admin_name = admin_identity()
+        user_result = supabase_client.get_user_by_id(user_id)
+        if user_result.get("success"):
+            target_identity = user_result["user"].get("username") or user_result["user"].get("email") or ''
+        else:
+            local_user = database.get_user_detail_with_sessions(user_id)
+            target_identity = local_user.get("username") or local_user.get("email") or '' if local_user else ''
+        if target_identity and target_identity == admin_name:
+            return jsonify({"error": "不能将自己的管理员权限取消"}), 400
+
+    result = supabase_client.update_user_role(user_id, role)
+    if result["success"]:
+        database.log_admin_action(
+            admin_identity(), "change_role", target_user_id=user_id,
+            details=f"切换角色为 {role}", ip_address=get_client_ip()
+        )
+        return jsonify({"success": True, "role": role})
+    else:
+        return jsonify({"success": False, "error": result["error"]}), 500
+
+
+def generate_random_password(length=10):
+    """生成一个易读且足够安全的随机密码"""
+    import secrets
+    import string
+    chars = string.ascii_letters + string.digits
+    while True:
+        pwd = ''.join(secrets.choice(chars) for _ in range(length))
+        # 确保包含大小写和数字
+        if (any(c.islower() for c in pwd)
+                and any(c.isupper() for c in pwd)
+                and any(c.isdigit() for c in pwd)):
+            return pwd
+
+
+@app.route("/admin/api/users/<user_id>/generate_password", methods=["POST"])
+@admin_required
+def admin_generate_password(user_id):
+    """生成一个随机密码并设置给用户，返回明文（仅一次）"""
+    new_password = generate_random_password(10)
+
+    result = supabase_client.admin_update_user_password(user_id, new_password)
+    if result["success"]:
+        database.log_admin_action(
+            admin_identity(), "generate_password", target_user_id=user_id,
+            details="生成随机密码", ip_address=get_client_ip()
+        )
+        return jsonify({"success": True, "password": new_password})
+    else:
+        return jsonify({"success": False, "error": result["error"]}), 500
+
+
+@app.route("/admin/api/logs", methods=["GET"])
+@admin_required
+def admin_get_logs():
+    limit = request.args.get('limit', 50, type=int)
+    offset = request.args.get('offset', 0, type=int)
+    action_type = request.args.get('action_type', '')
+    target_user = request.args.get('target_user', '')
+    start_time = request.args.get('start_time', '')
+    end_time = request.args.get('end_time', '')
+    if limit > 200:
+        limit = 200
+    logs = database.get_admin_logs(
+        limit=limit, offset=offset, action_type=action_type,
+        target_user=target_user, start_time=start_time, end_time=end_time
+    )
+    return jsonify({"success": True, "logs": logs})
+
+
+@app.route("/admin/api/admin/change_password", methods=["POST"])
+@admin_required
+def admin_change_password():
+    data = safe_get_json()
+    if not data:
+        return jsonify({"success": False, "error": "无效的请求格式"}), 400
+
+    old_password = data.get("old_password")
+    new_password = data.get("new_password")
+    confirm_password = data.get("confirm_password")
+
+    if not old_password or not new_password or not confirm_password:
+        return jsonify({"success": False, "error": "请填写所有字段"}), 400
+
+    if new_password != confirm_password:
+        return jsonify({"success": False, "error": "两次输入的新密码不一致"}), 400
+
+    if len(new_password) < 6:
+        return jsonify({"success": False, "error": "新密码长度至少为6位"}), 400
+
+    admin_name = admin_identity()
+    if admin_name not in ADMIN_CREDENTIALS or not _verify_admin_password(admin_name, old_password):
+        return jsonify({"success": False, "error": "原密码错误"}), 401
+
+    _set_admin_password(admin_name, new_password)
+    database.log_admin_action(
+        admin_name, "change_admin_password", details="修改管理员密码",
+        ip_address=get_client_ip()
+    )
+
+    return jsonify({"success": True, "message": "密码修改成功，请重新登录"})
+
+
+@app.route("/admin/api/system_info", methods=["GET"])
+@admin_required
+def admin_get_system_info():
+    import platform
+    import multiprocessing
+    import ctypes
+
+    cpu_count = multiprocessing.cpu_count()
+    cpu_percent = None
+    memory_total = None
+    memory_used = None
+    memory_percent = None
+    disk_total = None
+    disk_used = None
+    disk_percent = None
+    uptime = None
+
+    try:
+        is_windows = platform.system() == 'Windows'
+        if is_windows:
+            try:
+                class MEMORYSTATUSEX(ctypes.Structure):
+                    _fields_ = [
+                        ('dwLength', ctypes.c_ulong),
+                        ('dwMemoryLoad', ctypes.c_ulong),
+                        ('ullTotalPhys', ctypes.c_ulonglong),
+                        ('ullAvailPhys', ctypes.c_ulonglong),
+                        ('ullTotalPageFile', ctypes.c_ulonglong),
+                        ('ullAvailPageFile', ctypes.c_ulonglong),
+                        ('ullTotalVirtual', ctypes.c_ulonglong),
+                        ('ullAvailVirtual', ctypes.c_ulonglong),
+                        ('ullAvailExtendedVirtual', ctypes.c_ulonglong),
+                    ]
+                mem = MEMORYSTATUSEX()
+                mem.dwLength = ctypes.sizeof(mem)
+                ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(mem))
+                memory_total = round(mem.ullTotalPhys / (1024**3), 2)
+                memory_used = round((mem.ullTotalPhys - mem.ullAvailPhys) / (1024**3), 2)
+                memory_percent = round(float(mem.dwMemoryLoad), 1)
+            except Exception:
+                pass
+
+            try:
+                free_bytes = ctypes.c_ulonglong(0)
+                total_bytes = ctypes.c_ulonglong(0)
+                ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+                    ctypes.c_wchar_p('.'),
+                    ctypes.byref(free_bytes),
+                    ctypes.byref(total_bytes),
+                    None
+                )
+                disk_total = round(total_bytes.value / (1024**3), 2)
+                disk_used = round((total_bytes.value - free_bytes.value) / (1024**3), 2)
+                disk_percent = round((total_bytes.value - free_bytes.value) / total_bytes.value * 100, 1)
+            except Exception:
+                pass
+
+            try:
+                kernel32 = ctypes.windll.kernel32
+                tick_count = kernel32.GetTickCount64()
+                uptime = int(tick_count / 1000)
+            except Exception:
+                try:
+                    import ctypes.wintypes
+                    class FILETIME(ctypes.Structure):
+                        _fields_ = [('dwLowDateTime', ctypes.wintypes.DWORD),
+                                    ('dwHighDateTime', ctypes.wintypes.DWORD)]
+
+                    class SYSTEM_INFO(ctypes.Structure):
+                        _fields_ = [
+                            ('wProcessorArchitecture', ctypes.wintypes.WORD),
+                            ('wReserved', ctypes.wintypes.WORD),
+                            ('dwPageSize', ctypes.wintypes.DWORD),
+                            ('lpMinimumApplicationAddress', ctypes.c_void_p),
+                            ('lpMaximumApplicationAddress', ctypes.c_void_p),
+                            ('dwActiveProcessorMask', ctypes.c_void_p),
+                            ('dwNumberOfProcessors', ctypes.wintypes.DWORD),
+                            ('dwProcessorType', ctypes.wintypes.DWORD),
+                            ('dwAllocationGranularity', ctypes.wintypes.DWORD),
+                            ('wProcessorLevel', ctypes.wintypes.WORD),
+                            ('wProcessorRevision', ctypes.wintypes.WORD),
+                        ]
+                    uptime = int(ctypes.windll.kernel32.GetTickCount() / 1000)
+                except Exception:
+                    pass
+        else:
+            try:
+                import subprocess
+                result = subprocess.run(['df', '-k', '.'], capture_output=True, text=True, timeout=5)
+                lines = result.stdout.strip().split('\n')
+                if len(lines) >= 2:
+                    parts = lines[-1].split()
+                    if len(parts) >= 4:
+                        disk_total = round(int(parts[1]) / (1024**2), 2)
+                        disk_used = round(int(parts[2]) / (1024**2), 2)
+                        disk_percent = float(parts[4].replace('%', ''))
+            except Exception:
+                pass
+            try:
+                with open('/proc/uptime', 'r') as f:
+                    uptime = int(float(f.read().split()[0]))
+            except Exception:
+                pass
+            try:
+                with open('/proc/meminfo', 'r') as f:
+                    meminfo = {}
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            meminfo[parts[0].rstrip(':')] = int(parts[1])
+                    if 'MemTotal' in meminfo:
+                        memory_total = round(meminfo['MemTotal'] / (1024**2), 2)
+                    if 'MemAvailable' in meminfo and 'MemTotal' in meminfo:
+                        memory_used = round((meminfo['MemTotal'] - meminfo['MemAvailable']) / (1024**2), 2)
+                        memory_percent = round((meminfo['MemTotal'] - meminfo['MemAvailable']) / meminfo['MemTotal'] * 100, 1)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return jsonify({
+        "success": True,
+        "system": {
+            "platform": platform.system(),
+            "platform_version": platform.version(),
+            "python_version": platform.python_version(),
+            "hostname": platform.node(),
+            "cpu_count": cpu_count,
+            "cpu_percent": cpu_percent,
+            "memory_total": memory_total,
+            "memory_used": memory_used,
+            "memory_percent": memory_percent,
+            "disk_total": disk_total,
+            "disk_used": disk_used,
+            "disk_percent": disk_percent,
+            "uptime": uptime,
+            "current_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+            "app_version": "4.0",
+            "admin_users": list(ADMIN_CREDENTIALS.keys())
+        }
+    })
+
+
+@app.route("/admin/api/clean_cache", methods=["POST"])
+@admin_required
+def admin_clean_cache():
+    global TEMPLATE_CACHE
+    cache_size = len(TEMPLATE_CACHE)
+    TEMPLATE_CACHE.clear()
+    database.log_admin_action(
+        admin_identity(), "clean_cache", details=f"清理模板缓存，共 {cache_size} 条",
+        ip_address=get_client_ip()
+    )
+    return jsonify({"success": True, "message": f"缓存已清理，共清除 {cache_size} 条记录"})
+
+
+@app.route("/admin/api/users/<user_id>/disable", methods=["POST"])
+@admin_required
+def admin_disable_user(user_id):
+    admin_name = admin_identity()
+    user_result = supabase_client.get_user_by_id(user_id)
+    if user_result.get("success"):
+        target_identity = user_result["user"].get("username") or user_result["user"].get("email") or ''
+        if target_identity and target_identity == admin_name:
+            return jsonify({"success": False, "error": "不能禁用当前登录的管理员账号"}), 400
+    else:
+        # 修复 M8：Supabase 查询失败时不允许跳过自禁检查继续执行禁用操作，避免管理员误禁自己
+        return jsonify({"success": False, "error": "用户信息查询失败，禁止执行禁用操作: " + user_result.get("error", "Supabase 不可用")}), 503
+
+    result = supabase_client.admin_update_user_by_id(user_id, {"disabled": True})
+    if result["success"]:
+        database.log_admin_action(
+            admin_name, "disable_user", target_user_id=user_id,
+            details="禁用用户账号", ip_address=get_client_ip()
+        )
+        return jsonify({"success": True, "message": "用户已禁用"})
+    else:
+        return jsonify({"success": False, "error": result["error"]}), 500
+
+
+@app.route("/admin/api/users/<user_id>/enable", methods=["POST"])
+@admin_required
+def admin_enable_user(user_id):
+    result = supabase_client.admin_update_user_by_id(user_id, {"disabled": False})
+    if result["success"]:
+        database.log_admin_action(
+            admin_identity(), "enable_user", target_user_id=user_id,
+            details="启用用户账号", ip_address=get_client_ip()
+        )
+        return jsonify({"success": True, "message": "用户已启用"})
+    else:
+        return jsonify({"success": False, "error": result["error"]}), 500
 
 if __name__ == "__main__":
     print("""
 ============================================
-       BeiKe Assistant (Web) - 登录版 2.0
-       http://localhost:5024
+       BeiKe Assistant (Web) - 登录版 5.0
+       http://localhost:5000
        Ctrl+C to exit
 ============================================
 """)
     import webbrowser
-    threading.Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:5024/")).start()
-    app.run(host="0.0.0.0", port=5024, debug=False, threaded=True)
+    threading.Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:5000/")).start()
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

@@ -29,3 +29,14 @@ output_dir: .                    # 文件保存目录，. 表示当前目录
 temperature: 0.7                 # 0.5=严谨 0.8=有创意
 max_tokens: 3072                 # 单次回复最大长度（越大越慢）
 max_history: 6                   # 最大历史消息轮数（越多越慢）
+
+# ============================================
+# Supabase 配置（可选，用于用户认证）
+# ============================================
+# 在 Supabase Dashboard -> Settings -> API 获取
+supabase_url: ""
+supabase_anon_key: ""
+# service_role key 用于管理员功能（用户管理等）
+# 获取位置：Supabase Dashboard -> Settings -> API -> Project API keys -> service_role
+# ⚠️ 重要：service_role 具有超级权限，切勿泄露！
+supabase_service_role_key: ""

@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>{{ module.name }} · 备课助手</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #f8f6f2;
+            --sidebar-bg: #1e1e2e;
+            --sidebar-text: #cdd6f4;
+            --sidebar-hover: #313244;
+            --sidebar-active: #45475a;
+            --card-bg: #ffffff;
+            --text: #1e1e2e;
+            --text-secondary: #6c7086;
+            --border: #e0e3e8;
+            --accent: #7c3aed;
+            --accent-light: #ede9fe;
+            --accent-hover: #6d28d9;
+            --accent2: #5b21b6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --radius: 12px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.06),0 1px 2px rgba(0,0,0,0.04);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+            --shadow-lg: 0 8px 24px rgba(0,0,0,0.08);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+        }
+        .sidebar {
+            width: 220px;
+            background: var(--sidebar-bg);
+            color: var(--sidebar-text);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            position: fixed;
+            left: 0;
+            top: 0;
+            height: 100vh;
+            z-index: 20;
+            border-right: 1px solid rgba(255,255,255,0.05);
+        }
+        .sidebar-header {
+            padding: 20px 18px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            cursor: pointer;
+        }
+        .sidebar-header:hover { background: rgba(255,255,255,0.02); }
+        .sidebar-logo {
+            width: 36px;
+            height: 36px;
+            background: var(--accent);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 700;
+            border-radius: 10px;
+            text-decoration: none;
+            flex-shrink: 0;
+            transition: opacity .2s;
+            font-family: Georgia, serif;
+        }
+        .sidebar-logo:hover { opacity: .85; }
+        .sidebar-brand {
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .sidebar-brand p {
+            font-size: 11px;
+            color: #a6adc8;
+            margin-top: 4px;
+            font-weight: 400;
+        }
+        .sidebar-modules {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .module-item {
+            padding: 10px 14px;
+            border-radius: 8px;
+            margin-bottom: 2px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+            font-size: 13px;
+            color: var(--sidebar-text);
+            white-space: nowrap;
+        }
+        .module-item:hover { background: var(--sidebar-hover); color: #fff; }
+        .module-item.active {
+            background: var(--sidebar-active);
+            color: #fff;
+        }
+        .module-item .nav-ico {
+            width: 20px;
+            text-align: center;
+            font-size: 15px;
+            flex-shrink: 0;
+            font-family: Georgia, serif;
+        }
+        .back-btn {
+            margin: 10px 12px;
+            padding: 10px 14px;
+            border: 1px solid rgba(124,58,237,0.4);
+            border-radius: 8px;
+            background: rgba(124,58,237,0.1);
+            color: #c4b5fd;
+            text-align: center;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: .5px;
+            transition: all 0.2s;
+        }
+        .back-btn:hover {
+            background: rgba(124,58,237,0.2);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        .sidebar-footer {
+            padding: 14px 18px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            color: var(--sidebar-text);
+        }
+        .sidebar-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--sidebar-active);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .sidebar-user {
+            font-size: 12px;
+            color: var(--sidebar-text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        /* 数学公式暗纹水印层 */
+        .math-watermark {
+            position: fixed;
+            top: 0; left: 220px; right: 0; bottom: 0;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.15;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='900' height='1100' viewBox='0 0 900 1100'><text x='65' y='90' fill='%23bab5aa' font-family='Georgia,serif' font-size='18'>E = mc²</text><text x='420' y='55' fill='%23b5b0a5' font-family='Georgia,serif' font-size='16'>∫ f(x) dx</text><text x='720' y='140' fill='%23bab5aa' font-family='Georgia,serif' font-size='15'>a² + b² = c²</text><text x='90' y='330' fill='%23b8b3a8' font-family='Georgia,serif' font-size='17'>∑ 1/n²</text><text x='550' y='300' fill='%23bab5aa' font-family='Georgia,serif' font-size='16'>∇ × F</text><text x='35' y='570' fill='%23b5b0a5' font-family='Georgia,serif' font-size='15'>∂f/∂x + ∂f/∂y</text><text x='440' y='530' fill='%23b8b3a8' font-family='Georgia,serif' font-size='16'>lim (x→0)</text><text x='750' y='580' fill='%23bab5aa' font-family='Georgia,serif' font-size='17'>πr²</text><text x='150' y='780' fill='%23b5b0a5' font-family='Georgia,serif' font-size='14'>sin²θ + cos²θ = 1</text><text x='560' y='800' fill='%23bab5aa' font-family='Georgia,serif' font-size='15'>e^(iπ) + 1 = 0</text><text x='50' y='1010' fill='%23b8b3a8' font-family='Georgia,serif' font-size='15'>∮ E · dA</text><text x='400' y='1040' fill='%23bab5aa' font-family='Georgia,serif' font-size='14'>Δ = b² − 4ac</text></svg>");
+            background-repeat: repeat;
+            background-size: 900px 1100px;
+        }
+        /* 线条六边形层 */
+        .hex-pattern {
+            position: fixed;
+            top: 0; left: 220px; right: 0; bottom: 0;
+            pointer-events: none;
+            z-index: 0;
+            opacity: 0.52;
+            background-image:
+                url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='280' viewBox='0 0 260 280'><polygon points='30,35 65,55 65,95 30,115 -5,95 -5,55' fill='none' stroke='%23b8b3a8' stroke-width='0.8' stroke-opacity='0.28'/><polygon points='140,15 180,38 180,82 140,105 100,82 100,38' fill='none' stroke='%23b0aba0' stroke-width='0.6' stroke-opacity='0.2'/><polygon points='220,50 250,67 250,107 220,124 190,107 190,67' fill='none' stroke='%23bab5aa' stroke-width='0.7' stroke-opacity='0.24'/><polygon points='75,155 115,178 115,222 75,245 35,222 35,178' fill='none' stroke='%23bdb8ad' stroke-width='0.75' stroke-opacity='0.26'/><polygon points='185,170 220,190 220,230 185,250 150,230 150,190' fill='none' stroke='%23b5b0a5' stroke-width='0.65' stroke-opacity='0.22'/><polygon points='15,250 50,270 50,310 15,330 -20,310 -20,270' fill='none' stroke='%23b3ae9f' stroke-width='0.7' stroke-opacity='0.2'/><polygon points='235,255 270,275 270,315 235,335 200,315 200,275' fill='none' stroke='%23b8b3a8' stroke-width='0.6' stroke-opacity='0.18'/></svg>"),
+                url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'><polygon points='60,20 110,49 110,101 60,130 10,101 10,49' fill='none' stroke='%23b8b3a8' stroke-width='1.3' stroke-opacity='0.42'/><polygon points='150,70 185,90 185,130 150,150 115,130 115,90' fill='none' stroke='%23b0aba0' stroke-width='0.9' stroke-opacity='0.32'/><polygon points='40,160 75,180 75,220 40,240 5,220 5,180' fill='none' stroke='%23bab5aa' stroke-width='0.75' stroke-opacity='0.26'/><polygon points='190,175 220,193 220,227 190,245 160,227 160,193' fill='none' stroke='%23bdb8ad' stroke-width='0.7' stroke-opacity='0.22'/></svg>"),
+                url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'><polygon points='175,25 220,51 220,101 175,127 130,101 130,51' fill='none' stroke='%23bab5aa' stroke-width='1.2' stroke-opacity='0.4'/><polygon points='65,65 95,82 95,118 65,135 35,118 35,82' fill='none' stroke='%23b5b0a5' stroke-width='0.85' stroke-opacity='0.3'/><polygon points='200,155 230,173 230,207 200,225 170,207 170,173' fill='none' stroke='%23b0aba0' stroke-width='0.7' stroke-opacity='0.24'/><polygon points='30,180 60,198 60,232 30,250 0,232 0,198' fill='none' stroke='%23b8b3a8' stroke-width='0.65' stroke-opacity='0.2'/></svg>"),
+                url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'><polygon points='55,60 105,89 105,141 55,170 5,141 5,89' fill='none' stroke='%23bdb8ad' stroke-width='1.3' stroke-opacity='0.4'/><polygon points='145,40 180,60 180,100 145,120 110,100 110,60' fill='none' stroke='%23b3ae9f' stroke-width='0.85' stroke-opacity='0.3'/><polygon points='170,160 205,180 205,220 170,240 135,220 135,180' fill='none' stroke='%23b8b3a8' stroke-width='0.8' stroke-opacity='0.25'/><polygon points='20,200 50,218 50,252 20,270 -10,252 -10,218' fill='none' stroke='%23b5b0a5' stroke-width='0.7' stroke-opacity='0.2'/></svg>"),
+                url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'><polygon points='180,70 220,93 220,137 180,160 140,137 140,93' fill='none' stroke='%23b8b3a8' stroke-width='1.1' stroke-opacity='0.38'/><polygon points='70,45 100,63 100,97 70,115 40,97 40,63' fill='none' stroke='%23b0aba0' stroke-width='0.8' stroke-opacity='0.28'/><polygon points='45,165 80,186 80,226 45,247 10,226 10,186' fill='none' stroke='%23bab5aa' stroke-width='0.75' stroke-opacity='0.24'/><polygon points='210,190 240,208 240,242 210,260 180,242 180,208' fill='none' stroke='%23bdb8ad' stroke-width='0.65' stroke-opacity='0.18'/></svg>");
+            background-size: 260px 280px, 260px 260px, 260px 260px, 260px 260px, 260px 260px;
+            background-position: 0 0, left 12px top 8px, right 12px top 6px, left 15px bottom 12px, right 10px bottom 10px;
+            background-repeat: repeat, no-repeat, no-repeat, no-repeat, no-repeat;
+        }
+        .main-content {
+            flex: 1;
+            margin-left: 220px;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            overflow: hidden;
+            position: relative;
+            z-index: 1;
+            background: transparent;
+        }
+        .top-bar {
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            padding: 28px 32px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: var(--shadow);
+            position: relative;
+            z-index: 2;
+        }
+        .hero-chapter {
+            font-size: 11px;
+            letter-spacing: 3px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-weight: 600;
+        }
+        .hero-chapter::before {
+            content: '';
+            width: 32px;
+            height: 1px;
+            background: var(--accent);
+        }
+        .module-info { display: flex; flex-direction: column; gap: 6px; }
+        .module-info h1 {
+            font-size: 36px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            line-height: 1.2;
+        }
+        .module-info h1 .hero-ico {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 52px;
+            height: 52px;
+            background: var(--accent-light);
+            color: var(--accent);
+            border-radius: 14px;
+            font-size: 26px;
+            flex-shrink: 0;
+            font-family: Georgia, serif;
+        }
+        .module-info h1 .en {
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 400;
+            letter-spacing: 1px;
+            margin-left: 4px;
+        }
+        .module-info p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-top: 8px;
+            line-height: 1.8;
+            padding-left: 16px;
+            border-left: 2px solid var(--accent);
+            max-width: 820px;
+        }
+        .content-area {
+            flex: 1;
+            padding: 28px 32px 40px;
+            overflow-y: auto;
+            position: relative;
+            z-index: 1;
+        }
+        .exam-container {
+            display: flex;
+            gap: 24px;
+            height: 100%;
+        }
+        .config-panel {
+            width: 380px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .result-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            min-width: 0;
+        }
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 22px 24px;
+            box-shadow: var(--shadow);
+            transition: box-shadow .25s, transform .25s;
+        }
+        .card:hover { box-shadow: var(--shadow-md); }
+        .card-title {
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: .5px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            padding-left: 18px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            position: relative;
+        }
+        .card-title::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 14px;
+            transform: rotate(45deg);
+            width: 10px;
+            height: 10px;
+            border: 1.5px solid var(--accent);
+            background: var(--accent-light);
+            border-radius: 1px;
+        }
+        .card-title::after {
+            content: '';
+            position: absolute;
+            left: 3px;
+            top: 17px;
+            transform: rotate(45deg);
+            width: 4px;
+            height: 4px;
+            background: var(--accent);
+        }
+        .card-title .en {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 400;
+            letter-spacing: .5px;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-group:last-child { margin-bottom: 0; }
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 6px;
+            color: var(--text);
+        }
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: inherit;
+            transition: border-color 0.2s;
+            background: #fff;
+        }
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+        }
+        .form-textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+        .form-row {
+            display: flex;
+            gap: 10px;
+        }
+        .form-row .form-group { flex: 1; }
+        .difficulty-stars {
+            display: flex;
+            gap: 4px;
+            font-size: 22px;
+            cursor: pointer;
+        }
+        .difficulty-stars .star {
+            transition: all 0.2s;
+        }
+        .difficulty-stars .star.filled { color: var(--warning); }
+        .difficulty-stars .star.empty { color: #e5e7eb; }
+        .qtype-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px dashed var(--border);
+        }
+        .qtype-item:last-child { border-bottom: none; }
+        .qtype-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .qtype-left input[type="checkbox"] {
+            width: 15px;
+            height: 15px;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+        .qtype-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .qtype-count, .qtype-score {
+            width: 60px;
+            padding: 4px 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 12px;
+            text-align: center;
+        }
+        .qtype-count:focus, .qtype-score:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .qtype-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+        .generate-btn {
+            flex: 1;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: .5px;
+            cursor: pointer;
+            transition: all 0.25s;
+            font-family: inherit;
+        }
+        .generate-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(124,58,237,0.35); }
+        .generate-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .reset-btn {
+            flex: 1;
+            padding: 14px;
+            border: 1px solid var(--border);
+            background: #fff;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: .5px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-family: inherit;
+            color: var(--text);
+        }
+        .reset-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-light);
+        }
+        .result-tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--bg);
+            padding: 4px;
+            border-radius: 10px;
+        }
+        .result-tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .result-tab.active {
+            background: #fff;
+            color: var(--accent);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+        .result-content {
+            flex: 1;
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            overflow-y: auto;
+            min-height: 400px;
+        }
+        .result-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 300px;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+        .result-empty .icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
+        .result-empty p { font-size: 14px; }
+        .result-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .action-btn {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid var(--border);
+            background: #fff;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: .5px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-family: inherit;
+            color: var(--text);
+        }
+        .action-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-light);
+        }
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .action-btn.regenerate-btn {
+            color: #fff;
+            border-color: var(--accent);
+        }
+        .action-btn.regenerate-btn:hover {
+            color: #fff;
+            background: var(--accent-hover);
+        }
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 50px 30px;
+            background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+            border-radius: 14px;
+            border: 1px solid #e9d5ff;
+        }
+        .loading .spinner-wrapper {
+            position: relative;
+            width: 64px;
+            height: 64px;
+            margin-bottom: 16px;
+        }
+        .loading-spinner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 3px solid #e9d5ff;
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        .loading .spinner-emoji {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 28px;
+        }
+        .loading .loading-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 6px;
+        }
+        .loading .loading-subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .loading .loading-dots {
+            display: inline-flex;
+            gap: 4px;
+            margin-top: 12px;
+        }
+        .loading .loading-dots span {
+            width: 6px;
+            height: 6px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: loadingDot 1.4s infinite;
+        }
+        .loading .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .loading .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes loadingDot { 0%,80%,100% { opacity: 0.2; transform: scale(0.7); } 40% { opacity: 1; transform: scale(1); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .exam-preview { font-size: 14px; line-height: 1.8; }
+        .exam-preview h2 { font-size: 18px; margin-bottom: 12px; color: var(--text); }
+        .exam-preview h3 { font-size: 15px; margin: 16px 0 8px; color: var(--text); }
+        .exam-preview p { margin-bottom: 8px; }
+        .exam-wrapper { font-size: 14px; line-height: 1.8; }
+        .exam-wrapper h2 { font-size: 20px; text-align: center; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 2px solid var(--accent); }
+        .exam-info { text-align: center; color: var(--text-secondary); margin-bottom: 20px; font-size: 13px; }
+        .exam-wrapper .section { margin-bottom: 24px; }
+        .exam-wrapper .section h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; padding-left: 10px; border-left: 4px solid var(--accent); }
+        .exam-wrapper .question { margin-bottom: 16px; padding: 12px; background: var(--bg); border-radius: 8px; }
+        .exam-wrapper .q-num { font-weight: 600; margin-right: 8px; }
+        .exam-wrapper .q-content { flex: 1; }
+        .exam-wrapper .options { margin-top: 10px; padding-left: 24px; }
+        .exam-wrapper .option { margin-bottom: 6px; }
+        .exam-wrapper .q-score { color: var(--text-secondary); font-size: 12px; }
+        .answer-wrapper { font-size: 14px; line-height: 1.8; }
+        .answer-wrapper h2 { font-size: 18px; margin-bottom: 16px; color: var(--accent); }
+        .answer-wrapper .section { margin-bottom: 20px; }
+        .answer-wrapper .section h3 { font-size: 15px; font-weight: 600; margin-bottom: 10px; color: var(--text); }
+        .answer-wrapper .answer-item { margin-bottom: 12px; padding: 10px; background: var(--bg); border-radius: 6px; }
+        .answer-wrapper .q-num { font-weight: 600; margin-right: 8px; }
+        .answer-wrapper .q-answer { color: var(--success); font-weight: 500; }
+        .answer-wrapper .q-analysis { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); color: var(--text-secondary); font-size: 13px; }
+        .answer-sheet { margin-top: 20px; padding: 16px; background: var(--accent-light); border-radius: 8px; }
+        .answer-sheet h3 { font-size: 15px; margin-bottom: 10px; color: var(--accent); }
+        .q-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+        .q-kp { font-size: 12px; color: var(--accent); background: var(--accent-light); padding: 2px 8px; border-radius: 4px; }
+        .q-diff { font-size: 12px; padding: 2px 8px; border-radius: 4px; font-weight: 500; }
+        .diff-easy { background: #d1fae5; color: #065f46; }
+        .diff-medium { background: #fef3c7; color: #92400e; }
+        .diff-hard { background: #fee2e2; color: #991b1b; }
+        .total-score-display {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px dashed var(--border);
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--accent);
+            text-align: right;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="sidebar-header" onclick="window.location.href='/'">
+            <a href="/" class="sidebar-logo">Σ</a>
+            <div class="sidebar-brand">备课助手<p>AI · 智能教学平台</p></div>
+        </div>
+        <div class="sidebar-modules">
+            {% set icon_map = {'math': '∑', 'physics': '⚛', 'code': '{ }', 'ai_review': 'Ψ', 'training': '⚙', 'kindergarten': '✿', 'exam': '📋', 'lesson': '✎', 'plan': '◈', 'home': '⌂'} %}
+            {% for m in all_modules %}
+            <div class="module-item {% if m.id == module_id %}active{% endif %}"
+                 onclick="window.location.href='/module/{{ m.id }}'">
+                <span class="nav-ico">{{ icon_map.get(m.id, m.emoji) }}</span>
+                <span>{{ m.name }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="back-btn" onclick="window.location.href='/'">⌂ 返回主控台</div>
+        <div class="sidebar-footer">
+            <div class="sidebar-avatar">👤</div>
+            <span class="sidebar-user">{{ username }}</span>
+        </div>
+    </div>
+
+    <!-- 背景装饰层 -->
+    <div class="math-watermark"></div>
+    <div class="hex-pattern"></div>
+
+    <div class="main-content">
+        <div class="top-bar">
+            <div class="hero-chapter">Chapter · 试卷生成 · Exam Generator</div>
+            <div class="module-info">
+                <h1><span class="hero-ico">Σ</span>{{ module.name }}<span class="en">· Exam Paper</span></h1>
+                <p>{{ module.description }}</p>
+            </div>
+        </div>
+
+        <div class="content-area">
+            <div class="exam-container">
+                <div class="config-panel">
+                    <div class="card">
+                        <div class="card-title">基本信息 <span class="en">Basic Info</span></div>
+                        <div class="form-group">
+                            <label class="form-label">学科</label>
+                            <select class="form-select" id="subject">
+                                <option value="语文">语文</option>
+                                <option value="数学" selected>数学</option>
+                                <option value="英语">英语</option>
+                                <option value="物理">物理</option>
+                                <option value="化学">化学</option>
+                                <option value="生物">生物</option>
+                                <option value="历史">历史</option>
+                                <option value="地理">地理</option>
+                                <option value="政治">政治</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">年级</label>
+                                <select class="form-select" id="grade">
+                                    <option value="一年级">一年级</option>
+                                    <option value="二年级">二年级</option>
+                                    <option value="三年级">三年级</option>
+                                    <option value="四年级">四年级</option>
+                                    <option value="五年级">五年级</option>
+                                    <option value="六年级">六年级</option>
+                                    <option value="七年级">七年级</option>
+                                    <option value="八年级" selected>八年级</option>
+                                    <option value="九年级">九年级</option>
+                                    <option value="高一">高一</option>
+                                    <option value="高二">高二</option>
+                                    <option value="高三">高三</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">教材版本</label>
+                                <select class="form-select" id="textbook">
+                                    <option value="人教部编版">人教部编版</option>
+                                    <option value="苏教版">苏教版</option>
+                                    <option value="北师大版">北师大版</option>
+                                    <option value="沪教版">沪教版</option>
+                                    <option value="人教版" selected>人教版</option>
+                                    <option value="鲁教版">鲁教版</option>
+                                    <option value="外研版">外研版</option>
+                                    <option value="译林版">译林版</option>
+                                    <option value="教科版">教科版</option>
+                                    <option value="湘教版">湘教版</option>
+                                    <option value="其他">其他</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">章节</label>
+                            <input type="text" class="form-input" id="chapter" placeholder="例如：勾股定理">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">知识点</label>
+                            <textarea class="form-textarea" id="topic" placeholder="请输入考试范围或知识点，例如：一元二次方程、勾股定理"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">试卷设置 <span class="en">Exam Settings</span></div>
+                        <div class="form-group">
+                            <label class="form-label">试卷名称</label>
+                            <input type="text" class="form-input" id="exam-title" placeholder="例如：八年级数学单元测试">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">考试类型</label>
+                            <select class="form-select" id="exam-type">
+                                <option value="单元测验" selected>单元测验</option>
+                                <option value="期中考试">期中考试</option>
+                                <option value="期末考试">期末考试</option>
+                                <option value="随堂练习">随堂练习</option>
+                                <option value="综合测评">综合测评</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">难度</label>
+                            <div class="difficulty-stars" id="difficulty-stars">
+                                <span class="star filled" data-value="1">★</span>
+                                <span class="star filled" data-value="2">★</span>
+                                <span class="star filled" data-value="3">★</span>
+                                <span class="star empty" data-value="4">★</span>
+                                <span class="star empty" data-value="5">★</span>
+                            </div>
+                            <input type="hidden" id="difficulty" value="中等">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">考试时间(分钟)</label>
+                                <input type="number" class="form-input" id="duration" value="90" min="10" max="300">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">总分</label>
+                                <input type="number" class="form-input" id="total-score" value="100" min="10" max="300">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">题型配置 <span class="en">Question Types</span></div>
+                        <div class="qtype-item">
+                            <div class="qtype-left">
+                                <input type="checkbox" id="q-choice" checked>
+                                <label for="q-choice">选择题</label>
+                            </div>
+                            <div class="qtype-right">
+                                <div>
+                                    <span class="qtype-label">数量</span>
+                                    <input type="number" class="qtype-count" id="q-choice-count" value="5" min="0">
+                                </div>
+                                <div>
+                                    <span class="qtype-label">每题</span>
+                                    <input type="number" class="qtype-score" id="q-choice-score" value="2" min="1">
+                                    <span class="qtype-label">分</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="qtype-item">
+                            <div class="qtype-left">
+                                <input type="checkbox" id="q-fill" checked>
+                                <label for="q-fill">填空题</label>
+                            </div>
+                            <div class="qtype-right">
+                                <div>
+                                    <span class="qtype-label">数量</span>
+                                    <input type="number" class="qtype-count" id="q-fill-count" value="3" min="0">
+                                </div>
+                                <div>
+                                    <span class="qtype-label">每题</span>
+                                    <input type="number" class="qtype-score" id="q-fill-score" value="3" min="1">
+                                    <span class="qtype-label">分</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="qtype-item">
+                            <div class="qtype-left">
+                                <input type="checkbox" id="q-judge" checked>
+                                <label for="q-judge">判断题</label>
+                            </div>
+                            <div class="qtype-right">
+                                <div>
+                                    <span class="qtype-label">数量</span>
+                                    <input type="number" class="qtype-count" id="q-judge-count" value="3" min="0">
+                                </div>
+                                <div>
+                                    <span class="qtype-label">每题</span>
+                                    <input type="number" class="qtype-score" id="q-judge-score" value="2" min="1">
+                                    <span class="qtype-label">分</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="qtype-item">
+                            <div class="qtype-left">
+                                <input type="checkbox" id="q-answer" checked>
+                                <label for="q-answer">解答题</label>
+                            </div>
+                            <div class="qtype-right">
+                                <div>
+                                    <span class="qtype-label">数量</span>
+                                    <input type="number" class="qtype-count" id="q-answer-count" value="2" min="0">
+                                </div>
+                                <div>
+                                    <span class="qtype-label">每题</span>
+                                    <input type="number" class="qtype-score" id="q-answer-score" value="10" min="1">
+                                    <span class="qtype-label">分</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="total-score-display" id="total-score-calc">自动计算：92分</div>
+                    </div>
+
+                    <div class="btn-group">
+                        <button class="generate-btn" id="generate-btn" onclick="generateExam()">◈ 生成试卷</button>
+                        <button class="reset-btn" onclick="resetForm()">↺ 重置</button>
+                    </div>
+                </div>
+
+                <div class="result-panel">
+                    <div class="result-tabs">
+                        <div class="result-tab active" id="tab-exam" onclick="switchTab('exam')">▶ 试卷</div>
+                        <div class="result-tab" id="tab-answer" onclick="switchTab('answer')">◈ 答案解析</div>
+                    </div>
+                    <div class="result-content" id="result-content">
+                        <div class="result-empty" id="result-empty">
+                            <div class="icon">📋</div>
+                            <p>配置左侧参数，点击"生成试卷"<br>AI 将自动生成试卷及答案解析</p>
+                        </div>
+                        <div class="loading" id="result-loading" style="display:none;">
+                            <div class="spinner-wrapper">
+                                <div class="loading-spinner"></div>
+                                <span class="spinner-emoji">📋</span>
+                            </div>
+                            <div class="loading-title">AI 正在生成试卷</div>
+                            <div class="loading-subtitle">正在根据参数配置生成题目...</div>
+                            <div class="loading-dots"><span></span><span></span><span></span></div>
+                        </div>
+                        <div class="exam-preview" id="result-text" style="display:none;"></div>
+                    </div>
+                    <div class="result-actions">
+                        <button class="action-btn" id="btn-export-exam" onclick="exportExam()" disabled>◈ 导出试卷 Word</button>
+                        <button class="action-btn" id="btn-export-exam-pdf" onclick="exportExamPDF()" disabled>◈ 导出试卷 PDF</button>
+                        <button class="action-btn" id="btn-generate-answer" onclick="generateAnswer()" disabled>✎ 生成答案解析</button>
+                        <button class="action-btn regenerate-btn" id="btn-regenerate" onclick="regenerateExam()" style="display:none; background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); border-color: #7c3aed;">↺ 重新生成</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+    let currentExamContent = '';
+    let currentAnswerContent = '';
+    let currentExamData = null;
+    let currentTab = 'exam';
+    let currentDifficulty = 3;
+    let csrfToken = '';
+    let generationStartTime = 0;
+    let generationTimer = null;
+
+    const DIFFICULTY_MAP = {
+        1: '简单',
+        2: '简单',
+        3: '中等',
+        4: '困难',
+        5: '困难'
+    };
+
+    async function fetchCsrfToken() {
+        try {
+            const res = await fetch('/api/auth/get-csrf-token');
+            const data = await res.json();
+            if (data.csrf_token) {
+                csrfToken = data.csrf_token;
+            }
+        } catch (e) {
+            console.error('获取 CSRF Token 失败', e);
+        }
+    }
+
+    function initDifficultyStars() {
+        const stars = document.querySelectorAll('.difficulty-stars .star');
+        stars.forEach(star => {
+            star.addEventListener('click', function() {
+                currentDifficulty = parseInt(this.dataset.value);
+                updateStars();
+                document.getElementById('difficulty').value = DIFFICULTY_MAP[currentDifficulty];
+            });
+        });
+    }
+
+    function updateStars() {
+        const stars = document.querySelectorAll('.difficulty-stars .star');
+        stars.forEach(star => {
+            const value = parseInt(star.dataset.value);
+            if (value <= currentDifficulty) {
+                star.classList.remove('empty');
+                star.classList.add('filled');
+            } else {
+                star.classList.remove('filled');
+                star.classList.add('empty');
+            }
+        });
+    }
+
+    function calculateTotalScore() {
+        let total = 0;
+        const types = ['choice', 'fill', 'judge', 'answer'];
+        types.forEach(type => {
+            const checkbox = document.getElementById(`q-${type}`);
+            if (checkbox.checked) {
+                const count = parseInt(document.getElementById(`q-${type}-count`).value) || 0;
+                const score = parseInt(document.getElementById(`q-${type}-score`).value) || 0;
+                total += count * score;
+            }
+        });
+        document.getElementById('total-score-calc').textContent = `自动计算：${total}分`;
+        return total;
+    }
+
+    function switchTab(tab) {
+        currentTab = tab;
+        document.getElementById('tab-exam').classList.toggle('active', tab === 'exam');
+        document.getElementById('tab-answer').classList.toggle('active', tab === 'answer');
+        const textEl = document.getElementById('result-text');
+        if (currentExamContent || currentAnswerContent) {
+            textEl.style.display = 'block';
+            textEl.innerHTML = tab === 'exam' ? currentExamContent : currentAnswerContent;
+        }
+    }
+
+    function resetForm() {
+        document.getElementById('exam-title').value = '';
+        document.getElementById('chapter').value = '';
+        document.getElementById('topic').value = '';
+        document.getElementById('duration').value = '90';
+        document.getElementById('total-score').value = '100';
+        
+        currentDifficulty = 3;
+        updateStars();
+        document.getElementById('difficulty').value = DIFFICULTY_MAP[currentDifficulty];
+
+        document.getElementById('q-choice-count').value = '5';
+        document.getElementById('q-choice-score').value = '2';
+        document.getElementById('q-fill-count').value = '3';
+        document.getElementById('q-fill-score').value = '3';
+        document.getElementById('q-judge-count').value = '3';
+        document.getElementById('q-judge-score').value = '2';
+        document.getElementById('q-answer-count').value = '2';
+        document.getElementById('q-answer-score').value = '10';
+
+        calculateTotalScore();
+
+        document.getElementById('result-empty').style.display = 'flex';
+        document.getElementById('result-text').style.display = 'none';
+        document.getElementById('btn-export-exam').disabled = true;
+        document.getElementById('btn-export-exam-pdf').disabled = true;
+        document.getElementById('btn-generate-answer').disabled = true;
+        currentExamData = null;
+        currentExamContent = '';
+        currentAnswerContent = '';
+    }
+
+    function generateExamHTML(examData) {
+        if (!examData || !examData.sections) return '';
+        let html = `<div class="exam-wrapper">`;
+        html += `<h2>${examData.title || '试卷'}</h2>`;
+        html += `<p class="exam-info">学科：${examData.subject || ''} | 年级：${examData.grade || ''} | 总分：${examData.total_score || 100}分 | 时长：${examData.duration || 90}分钟 | 难度：${examData.difficulty || '中等'}</p>`;
+        let qNum = 1;
+        examData.sections.forEach(section => {
+            html += `<div class="section">`;
+            html += `<h3>${section.type}</h3>`;
+            section.questions.forEach(q => {
+                html += `<div class="question">`;
+                html += `<span class="q-num">${qNum}.</span>`;
+                html += `<span class="q-content">${q.content}</span>`;
+                if (q.options && q.options.length > 0) {
+                    html += `<div class="options">`;
+                    q.options.forEach((opt, idx) => {
+                        html += `<div class="option">${String.fromCharCode(65 + idx)}. ${opt}</div>`;
+                    });
+                    html += `</div>`;
+                }
+                html += `<div class="q-meta">`;
+                if (q.knowledge_point) {
+                    html += `<span class="q-kp">📚 ${q.knowledge_point}</span>`;
+                }
+                if (q.difficulty_label) {
+                    const diffClass = q.difficulty_label === '简单' ? 'diff-easy' : 
+                                     q.difficulty_label === '困难' ? 'diff-hard' : 'diff-medium';
+                    html += `<span class="q-diff ${diffClass}">${q.difficulty_label}</span>`;
+                }
+                html += `<span class="q-score">${q.score || 0}分</span>`;
+                html += `</div>`;
+                html += `</div>`;
+                qNum++;
+            });
+            html += `</div>`;
+        });
+        html += `</div>`;
+        return html;
+    }
+
+    function generateAnswerHTML(examData) {
+        if (!examData || !examData.sections) return '';
+        let html = `<div class="answer-wrapper">`;
+        html += `<h2>${examData.title || '试卷'} - 参考答案及解析</h2>`;
+        let qNum = 1;
+        examData.sections.forEach(section => {
+            html += `<div class="section">`;
+            html += `<h3>${section.type}</h3>`;
+            section.questions.forEach(q => {
+                html += `<div class="answer-item">`;
+                html += `<span class="q-num">${qNum}.</span>`;
+                html += `<span class="q-answer">答案：${q.answer || ''}</span>`;
+                if (q.knowledge_point) {
+                    html += `<span class="q-kp">📚 ${q.knowledge_point}</span>`;
+                }
+                if (q.difficulty_label) {
+                    const diffClass = q.difficulty_label === '简单' ? 'diff-easy' : 
+                                     q.difficulty_label === '困难' ? 'diff-hard' : 'diff-medium';
+                    html += `<span class="q-diff ${diffClass}">${q.difficulty_label}</span>`;
+                }
+                if (q.analysis) {
+                    html += `<div class="q-analysis">解析：${q.analysis}</div>`;
+                }
+                html += `</div>`;
+                qNum++;
+            });
+            html += `</div>`;
+        });
+        if (examData.answer_sheet) {
+            html += `<div class="answer-sheet"><h3>答案速查表</h3><p>${examData.answer_sheet}</p></div>`;
+        }
+        html += `</div>`;
+        return html;
+    }
+
+    function generateExam() {
+        const topic = document.getElementById('topic').value.trim();
+        if (!topic) {
+            alert('请输入考试主题或知识点');
+            document.getElementById('topic').focus();
+            return;
+        }
+
+        const btn = document.getElementById('generate-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ 生成中...';
+
+        document.getElementById('result-empty').style.display = 'none';
+        document.getElementById('result-loading').style.display = 'flex';
+        document.getElementById('result-text').style.display = 'none';
+
+        generationStartTime = Date.now();
+        if (generationTimer) clearInterval(generationTimer);
+        generationTimer = setInterval(() => {
+            const elapsed = Math.floor((Date.now() - generationStartTime) / 1000);
+            const mins = Math.floor(elapsed / 60);
+            const secs = elapsed % 60;
+            btn.textContent = `⏳ 生成中... ${mins}分${secs}秒`;
+        }, 1000);
+
+        const questionTypes = {};
+        if (document.getElementById('q-choice').checked) {
+            questionTypes.choice = {
+                count: parseInt(document.getElementById('q-choice-count').value) || 0,
+                score: parseInt(document.getElementById('q-choice-score').value) || 2
+            };
+        }
+        if (document.getElementById('q-fill').checked) {
+            questionTypes.fill = {
+                count: parseInt(document.getElementById('q-fill-count').value) || 0,
+                score: parseInt(document.getElementById('q-fill-score').value) || 3
+            };
+        }
+        if (document.getElementById('q-judge').checked) {
+            questionTypes.judge = {
+                count: parseInt(document.getElementById('q-judge-count').value) || 0,
+                score: parseInt(document.getElementById('q-judge-score').value) || 2
+            };
+        }
+        if (document.getElementById('q-answer').checked) {
+            questionTypes.answer = {
+                count: parseInt(document.getElementById('q-answer-count').value) || 0,
+                score: parseInt(document.getElementById('q-answer-score').value) || 10
+            };
+        }
+
+        fetch('/api/exam/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify({
+                exam_title: document.getElementById('exam-title').value.trim(),
+                exam_type: document.getElementById('exam-type').value,
+                topic: topic,
+                chapter: document.getElementById('chapter').value.trim(),
+                subject: document.getElementById('subject').value,
+                grade: document.getElementById('grade').value,
+                textbook: document.getElementById('textbook').value,
+                difficulty: document.getElementById('difficulty').value,
+                question_types: questionTypes,
+                total_score: parseInt(document.getElementById('total-score').value),
+                duration: parseInt(document.getElementById('duration').value)
+            })
+        })
+        .then(async res => {
+            if (generationTimer) { clearInterval(generationTimer); generationTimer = null; }
+            document.getElementById('result-loading').style.display = 'none';
+            btn.disabled = false;
+            btn.textContent = '◈ 生成试卷';
+
+            if (!res.ok) {
+                let errorMsg = `请求失败 (${res.status})`;
+                try {
+                    const errData = await res.json();
+                    errorMsg = errData.error || errData.message || errorMsg;
+                } catch {
+                    try {
+                        const text = await res.text();
+                        errorMsg = text.substring(0, 200) || errorMsg;
+                    } catch {}
+                }
+                document.getElementById('result-empty').style.display = 'flex';
+                document.getElementById('result-empty').querySelector('.icon').textContent = '⚠️';
+                document.getElementById('result-empty').querySelector('p').textContent = errorMsg;
+                return;
+            }
+
+            let data;
+            try {
+                data = await res.json();
+            } catch {
+                document.getElementById('result-empty').style.display = 'flex';
+                document.getElementById('result-empty').querySelector('.icon').textContent = '⚠️';
+                document.getElementById('result-empty').querySelector('p').textContent = '服务端返回格式异常，请稍后重试';
+                return;
+            }
+
+            if (data.success) {
+                currentExamData = data.exam_data || null;
+                
+                if (currentExamData) {
+                    currentExamContent = generateExamHTML(currentExamData);
+                    currentAnswerContent = generateAnswerHTML(currentExamData);
+                }
+
+                if (currentExamContent || currentAnswerContent) {
+                    document.getElementById('result-text').style.display = 'block';
+                    document.getElementById('result-text').innerHTML = currentTab === 'exam' ? currentExamContent : currentAnswerContent;
+                    document.getElementById('btn-export-exam').disabled = false;
+                    document.getElementById('btn-export-exam-pdf').disabled = false;
+                    document.getElementById('btn-generate-answer').disabled = !currentAnswerContent;
+                    document.getElementById('btn-regenerate').style.display = 'inline-flex';
+                } else {
+                    document.getElementById('result-empty').style.display = 'flex';
+                    document.getElementById('result-empty').querySelector('p').innerHTML = data.message || '生成失败';
+                }
+            } else {
+                document.getElementById('result-empty').style.display = 'flex';
+                document.getElementById('result-empty').querySelector('.icon').textContent = '⚠️';
+                document.getElementById('result-empty').querySelector('p').textContent = data.error || '生成失败';
+            }
+        })
+        .catch(err => {
+            if (generationTimer) { clearInterval(generationTimer); generationTimer = null; }
+            console.error(err);
+            document.getElementById('result-loading').style.display = 'none';
+            document.getElementById('result-empty').style.display = 'flex';
+            document.getElementById('result-empty').querySelector('.icon').textContent = '❌';
+            const isNetworkError = err.name === 'TypeError' && err.message.includes('Failed to fetch');
+            document.getElementById('result-empty').querySelector('p').textContent = isNetworkError ? '无法连接到服务器，请检查网络' : `网络错误：${err.message}`;
+            btn.disabled = false;
+            btn.textContent = '◈ 生成试卷';
+        });
+    }
+
+    function regenerateExam() {
+        // 隐藏重新生成按钮，清空当前内容
+        document.getElementById('btn-regenerate').style.display = 'none';
+        document.getElementById('result-text').style.display = 'none';
+        document.getElementById('result-empty').style.display = 'none';
+        currentExamContent = '';
+        currentAnswerContent = '';
+        currentExamData = null;
+
+        // 重新生成
+        generateExam();
+    }
+
+    function generateAnswer() {
+        if (!currentExamData) return;
+        currentTab = 'answer';
+        switchTab('answer');
+    }
+
+    function exportExam() {
+        if (!currentExamData) return;
+        exportFile('docx', 'exam');
+    }
+
+    function exportExamPDF() {
+        if (!currentExamData) return;
+        exportFile('pdf', 'exam');
+    }
+
+    function exportFile(format, type) {
+        const btn = format === 'docx' ? 
+            document.getElementById('btn-export-exam') :
+            document.getElementById('btn-export-exam-pdf');
+        
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '⏳ 导出中...';
+
+        const apiUrl = format === 'docx' ? '/api/exam/export/docx' : '/api/exam/export/pdf';
+        
+        fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify({
+                exam_data: currentExamData,
+                type: type
+            })
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('导出失败');
+            return response.blob();
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const ext = format === 'docx' ? 'docx' : 'pdf';
+            const title = currentExamData.title || '试卷';
+            const suffix = type === 'answer' ? '_答案解析' : '';
+            a.download = `${title}${suffix}.${ext}`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        })
+        .catch(err => {
+            alert('导出失败：' + err.message);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        fetchCsrfToken();
+        initDifficultyStars();
+        calculateTotalScore();
+
+        const inputs = document.querySelectorAll('.qtype-count, .qtype-score');
+        inputs.forEach(input => {
+            input.addEventListener('input', calculateTotalScore);
+        });
+
+        const checkboxes = document.querySelectorAll('.qtype-item input[type="checkbox"]');
+        checkboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', calculateTotalScore);
+        });
+    });
+</script>
+</body>
+</html>

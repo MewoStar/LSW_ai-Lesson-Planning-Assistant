@@ -18,7 +18,7 @@ if __name__ == "__main__":
     print("""
 ============================================
        BeiKe Assistant - 可视化生成模块
-       http://localhost:5024/module/visualization
+       http://localhost:6000/module/visualization
 ============================================
 """)
-    app.run(host='0.0.0.0', port=5024, debug=False, use_reloader=False, threaded=True)
+    app.run(host='0.0.0.0', port=6000, debug=False, use_reloader=False, threaded=True)

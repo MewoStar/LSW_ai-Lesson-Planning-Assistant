@@ -50,6 +50,10 @@ config.yaml
 .DS_Store
 Thumbs.db
 
+# 用户数据（头像、生成的课件）
+uploads/
+历史记录/
+
 # 日志
 *.log
 

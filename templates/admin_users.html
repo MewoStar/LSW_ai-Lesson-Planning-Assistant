@@ -1,0 +1,2520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理 - 管理员后台</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #f8f6f2;
+            --sidebar-bg: #1e1e2e;
+            --sidebar-text: #cdd6f4;
+            --sidebar-hover: #313244;
+            --sidebar-active: #45475a;
+            --card-bg: #ffffff;
+            --text: #1e1e2e;
+            --text-secondary: #6c7086;
+            --border: #e0e3e8;
+            --accent: #7c3aed;
+            --accent-light: #ede9fe;
+            --accent-hover: #6d28d9;
+            --teal: #0d9488;
+            --teal-light: #ccfbf1;
+            --amber: #b45309;
+            --amber-light: #fef3c7;
+            --rose: #be185d;
+            --rose-light: #fce7f3;
+            --sky: #0369a1;
+            --sky-light: #e0f2fe;
+            --emerald: #047857;
+            --emerald-light: #d1fae5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --radius: 12px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+        }
+        /* SVG 图标通用样式 */
+        .ico { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; flex-shrink: 0; }
+        .ico-sm { width: 16px; height: 16px; }
+        .ico-md { width: 20px; height: 20px; }
+        .ico-lg { width: 24px; height: 24px; }
+        .ico-xl { width: 48px; height: 48px; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Microsoft YaHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .header {
+            background: var(--card-bg);
+            color: var(--text);
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--shadow);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text);
+        }
+        .header h1 .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--accent-light);
+            color: var(--accent);
+            border-radius: 10px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-shrink: 0;
+        }
+        .btn-logout {
+            padding: 8px 16px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-logout:hover {
+            background: #fee2e2;
+            border-color: #fecaca;
+            color: #dc2626;
+            transform: translateY(-1px);
+        }
+        .btn-back {
+            padding: 8px 16px;
+            background: var(--accent-light);
+            border: 1px solid rgba(124,58,237,0.15);
+            border-radius: 8px;
+            color: var(--accent);
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            transition: all 0.2s;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-back:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+            transform: translateY(-1px);
+        }
+        .container {
+            padding: 30px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .stats-card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            margin-bottom: 24px;
+        }
+        .stats-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .stats-header h2 {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .stats-badge {
+            background: var(--accent-light);
+            color: var(--accent);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            border: 1px solid rgba(124,58,237,0.12);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-item {
+            background: var(--bg);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid var(--border);
+            transition: all 0.15s;
+        }
+        .stat-item:hover {
+            transform: translateY(-1px);
+            border-color: var(--accent);
+        }
+        .stat-item .number {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+        .stat-item .label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        .toolbar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .search-bar {
+            display: flex;
+            gap: 12px;
+            flex: 1;
+            min-width: 260px;
+        }
+        .search-bar input {
+            flex: 1;
+            padding: 12px 16px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s;
+            background: var(--bg);
+        }
+        .search-bar input:focus {
+            border-color: var(--accent);
+            background: white;
+            box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+        }
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(124,58,237,0.25);
+        }
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-success {
+            background: var(--emerald);
+            color: white;
+        }
+        .btn-success:hover {
+            background: #036949;
+            transform: translateY(-1px);
+        }
+        .btn-warning {
+            background: var(--amber);
+            color: white;
+        }
+        .btn-warning:hover {
+            background: #92400e;
+            transform: translateY(-1px);
+        }
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #dc2626;
+            transform: translateY(-1px);
+        }
+        .btn-secondary {
+            background: var(--bg);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+        .btn-secondary:hover {
+            background: var(--accent-light);
+            color: var(--accent);
+            border-color: rgba(124,58,237,0.15);
+        }
+        .batch-bar {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: var(--accent-light);
+            border: 1px solid rgba(124,58,237,0.15);
+            border-radius: 10px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .batch-bar.active {
+            display: flex;
+        }
+        .batch-bar span {
+            font-size: 14px;
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .user-table {
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+        .user-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .user-table th {
+            background: var(--bg);
+            padding: 14px 16px;
+            text-align: left;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+            white-space: nowrap;
+            border-bottom: 1px solid var(--border);
+        }
+        .user-table th:hover {
+            background: var(--accent-light);
+            color: var(--accent);
+        }
+        .user-table th .sort-icon {
+            margin-left: 4px;
+            opacity: 0.5;
+            font-size: 11px;
+        }
+        .user-table th.sort-asc .sort-icon::after { content: '▲'; opacity: 1; color: var(--accent); }
+        .user-table th.sort-desc .sort-icon::after { content: '▼'; opacity: 1; color: var(--accent); }
+        .user-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+            color: var(--text);
+            vertical-align: middle;
+        }
+        .user-table tr {
+            transition: all 0.15s;
+        }
+        .user-table tr:hover td {
+            background: var(--accent-light);
+        }
+        .user-table tr:last-child td {
+            border-bottom: none;
+        }
+        .user-table tr.selected td {
+            background: var(--accent-light);
+        }
+        .user-table input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: var(--accent);
+        }
+        .btn-action {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s;
+            margin-right: 4px;
+            margin-bottom: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .btn-action:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .btn-edit {
+            background: var(--sky-light);
+            color: var(--sky);
+        }
+        .btn-edit:hover:not(:disabled) {
+            background: #bae6fd;
+            transform: translateY(-1px);
+        }
+        .btn-delete {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+        .btn-delete:hover:not(:disabled) {
+            background: #fecaca;
+            transform: translateY(-1px);
+        }
+        .btn-role {
+            background: var(--amber-light);
+            color: var(--amber);
+        }
+        .btn-role:hover:not(:disabled) {
+            background: #fde68a;
+            transform: translateY(-1px);
+        }
+        .btn-reset {
+            background: var(--accent-light);
+            color: var(--accent);
+        }
+        .btn-reset:hover:not(:disabled) {
+            background: #ddd6fe;
+            transform: translateY(-1px);
+        }
+        .btn-detail {
+            background: var(--bg);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+        .btn-detail:hover:not(:disabled) {
+            background: var(--accent-light);
+            color: var(--accent);
+            border-color: rgba(124,58,237,0.15);
+            transform: translateY(-1px);
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+        .empty-state .icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            color: var(--text-secondary);
+        }
+        .loading-spinner {
+            display: inline-block;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+        .loading-spinner.dark {
+            border-color: rgba(124,58,237,0.2);
+            border-top-color: var(--accent);
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .status-badge {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .status-active {
+            background: var(--emerald-light);
+            color: var(--emerald);
+        }
+        .status-inactive {
+            background: var(--amber-light);
+            color: var(--amber);
+        }
+        .status-badge.status-disabled {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+        .role-badge.admin {
+            background: var(--accent-light);
+            color: var(--accent);
+        }
+        .role-badge.user {
+            background: var(--teal-light);
+            color: var(--teal);
+        }
+        .message {
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 14px;
+            margin-bottom: 16px;
+            display: none;
+            position: relative;
+        }
+        .message.show { display: block; }
+        .error-message { background: #fee2e2; color: #dc2626; }
+        .success-message { background: var(--emerald-light); color: var(--emerald); }
+        .warning-message { background: var(--amber-light); color: var(--amber); }
+        .message-close {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            color: inherit;
+            opacity: 0.6;
+        }
+        .message-close:hover { opacity: 1; }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(30,30,46,0.55);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            backdrop-filter: blur(2px);
+        }
+        .modal-overlay.active {
+            display: flex;
+        }
+        .modal {
+            background: var(--card-bg);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 520px;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+            border: 1px solid var(--border);
+        }
+        .modal-scroll {
+            overflow-y: auto;
+        }
+        .modal-header {
+            background: var(--card-bg);
+            color: var(--text);
+            padding: 20px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+        }
+        .modal-header h3 {
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .modal-close {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .modal-close:hover {
+            background: #fee2e2;
+            color: #dc2626;
+            border-color: #fecaca;
+        }
+        .modal-body {
+            padding: 24px;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 8px;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s;
+            background: var(--bg);
+            color: var(--text);
+        }
+        .form-group input:focus, .form-group select:focus {
+            border-color: var(--accent);
+            background: white;
+            box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+        }
+        .form-group select {
+            cursor: pointer;
+        }
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+        .btn-cancel {
+            padding: 10px 20px;
+            background: var(--bg);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-cancel:hover {
+            background: var(--accent-light);
+            color: var(--accent);
+            border-color: rgba(124,58,237,0.15);
+        }
+        .btn-submit {
+            padding: 10px 20px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-submit:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(124,58,237,0.25);
+        }
+        .btn-submit:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .small-text {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        .nav-tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 2px solid var(--border);
+        }
+        .nav-tab {
+            padding: 10px 20px;
+            border: none;
+            background: none;
+            border-bottom: 2px solid transparent;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: -2px;
+        }
+        .nav-tab:hover {
+            color: var(--accent);
+        }
+        .nav-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+        .activity-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: var(--bg);
+            border-radius: 10px;
+            margin-bottom: 8px;
+            gap: 12px;
+            border: 1px solid var(--border);
+            transition: all 0.15s;
+        }
+        .activity-item:hover {
+            transform: translateY(-1px);
+            border-color: var(--accent);
+        }
+        .activity-item .info {
+            flex: 1;
+            min-width: 0;
+        }
+        .activity-item .user {
+            font-weight: 600;
+            color: var(--text);
+        }
+        .activity-item .action {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        .activity-item .time {
+            font-size: 12px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        .log-item {
+            padding: 12px 16px;
+            background: var(--bg);
+            border-radius: 10px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            border: 1px solid var(--border);
+        }
+        .log-item .meta {
+            display: flex;
+            gap: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            flex-wrap: wrap;
+        }
+        .log-item .meta strong {
+            color: var(--text);
+        }
+        .log-item .detail {
+            color: var(--text);
+        }
+        .pagination {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            border-top: 1px solid var(--border);
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .pagination-info {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .pagination-buttons {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+        .page-btn {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            background: var(--card-bg);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text);
+            transition: all 0.2s;
+        }
+        .page-btn:hover:not(:disabled) {
+            background: var(--accent-light);
+            border-color: var(--accent);
+            color: var(--accent);
+            transform: translateY(-1px);
+        }
+        .page-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .page-btn.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        .page-size {
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+            background: var(--card-bg);
+            color: var(--text);
+        }
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+        .detail-item {
+            background: var(--bg);
+            padding: 14px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+        .detail-item .label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+        .detail-item .value {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text);
+            word-break: break-all;
+        }
+        .session-list {
+            max-height: 240px;
+            overflow-y: auto;
+        }
+        .session-item {
+            padding: 10px 12px;
+            background: var(--bg);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            border: 1px solid var(--border);
+        }
+        .session-item .title {
+            color: var(--text);
+            font-weight: 500;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .session-item .time {
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            padding: 14px 18px;
+            border-radius: 10px;
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            animation: slideIn 0.3s ease;
+            max-width: 320px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .toast.success { background: var(--success); }
+        .toast.error { background: var(--danger); }
+        .toast.warning { background: var(--warning); }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+            .sidebar {
+                transform: translateX(-100%);
+            }
+            .sidebar.active {
+                transform: translateX(0);
+            }
+            .sidebar-overlay {
+                display: block;
+            }
+            .sidebar-overlay.active {
+                display: block;
+                opacity: 1;
+                pointer-events: auto;
+            }
+            .main-content {
+                margin-left: 0;
+            }
+            .container {
+                padding: 16px;
+            }
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .search-bar {
+                min-width: 100%;
+            }
+            .user-table {
+                overflow-x: auto;
+            }
+            .user-table table {
+                min-width: 900px;
+            }
+            .user-table th, .user-table td {
+                padding: 12px 10px;
+                font-size: 12px;
+            }
+            .btn-action {
+                padding: 4px 8px;
+                font-size: 11px;
+                margin-right: 2px;
+            }
+            .detail-grid {
+                grid-template-columns: 1fr;
+            }
+            .system-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .sidebar {
+            width: 220px;
+            background: var(--sidebar-bg);
+            color: var(--sidebar-text);
+            position: fixed;
+            left: 0;
+            top: 74px;
+            bottom: 0;
+            padding: 20px 0;
+            overflow-y: auto;
+            z-index: 900;
+            transition: transform 0.3s ease;
+        }
+        .sidebar-overlay {
+            position: fixed;
+            top: 74px;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 899;
+            display: none;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.3s ease;
+        }
+        .sidebar-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .sidebar-nav {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .sidebar-nav li {
+            margin-bottom: 4px;
+        }
+        .sidebar-nav a {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 20px;
+            color: var(--sidebar-text);
+            text-decoration: none;
+            font-size: 14px;
+            transition: all 0.2s;
+            position: relative;
+        }
+        .sidebar-nav a:hover {
+            background: rgba(255,255,255,0.06);
+            color: white;
+        }
+        .sidebar-nav a.active {
+            background: var(--accent);
+            color: white;
+        }
+        .sidebar-nav a.active::before {
+            content: '';
+            width: 3px;
+            height: 24px;
+            background: white;
+            position: absolute;
+            left: 0;
+        }
+        .sidebar-section {
+            padding: 16px 20px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #6c7086;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .main-content {
+            margin-left: 220px;
+            padding-bottom: 40px;
+        }
+        .menu-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--text);
+            font-size: 20px;
+            cursor: pointer;
+        }
+        @media (max-width: 1024px) {
+            .menu-toggle {
+                display: block;
+            }
+        }
+        .system-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 16px;
+        }
+        .system-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+        }
+        .system-card h4 {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .system-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            font-size: 13px;
+            border-bottom: 1px solid var(--bg);
+        }
+        .system-item:last-child {
+            border-bottom: none;
+        }
+        .system-item .label {
+            color: var(--text-secondary);
+        }
+        .system-item .value {
+            color: var(--text);
+            font-weight: 500;
+            font-family: monospace;
+        }
+        .progress-bar {
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        .progress-fill.cpu { background: var(--amber); }
+        .progress-fill.memory { background: var(--accent); }
+        .progress-fill.disk { background: var(--emerald); }
+        .btn-enable {
+            background: var(--emerald-light);
+            color: var(--emerald);
+        }
+        .btn-enable:hover:not(:disabled) {
+            background: #bbf7d0;
+            transform: translateY(-1px);
+        }
+        .btn-disable {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+        .btn-disable:hover:not(:disabled) {
+            background: #fecaca;
+            transform: translateY(-1px);
+        }
+        .filter-bar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .filter-item {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .filter-item label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        .filter-item select, .filter-item input {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 13px;
+            background: var(--card-bg);
+            outline: none;
+            color: var(--text);
+        }
+        .filter-item select:focus, .filter-item input:focus {
+            border-color: var(--accent);
+        }
+        .action-filter {
+            min-width: 140px;
+        }
+    </style>
+</head>
+<body>
+    <svg style="display:none">
+        <symbol id="i-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M8 7h8M8 11h6"/></symbol>
+        <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>
+        <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+        <symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+        <symbol id="i-chart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></symbol>
+        <symbol id="i-scroll" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4"/><path d="M19 3H9v7h12V5a2 2 0 0 0-2-2z"/></symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+        <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+        <symbol id="i-edit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
+        <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+        <symbol id="i-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+        <symbol id="i-broom" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M19.36 2.64a2 2 0 0 0-2.83 0l-9.9 9.9 2.83 2.83 9.9-9.9a2 2 0 0 0 0-2.83z"/><path d="M9.5 12.5L4 18l3 3 4-3"/></symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+        <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+        <symbol id="i-message" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+        <symbol id="i-database" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+        <symbol id="i-power" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></symbol>
+    </svg>
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-section">用户管理</div>
+        <ul class="sidebar-nav">
+            <li><a href="#" class="active" onclick="switchTab('users')"><svg class="ico ico-md"><use href="#i-users"/></svg> 用户列表</a></li>
+            <li><a href="#" onclick="switchTab('stats')"><svg class="ico ico-md"><use href="#i-chart"/></svg> 系统统计</a></li>
+            <li><a href="#" onclick="switchTab('logs')"><svg class="ico ico-md"><use href="#i-scroll"/></svg> 操作日志</a></li>
+        </ul>
+        <div class="sidebar-section">系统管理</div>
+        <ul class="sidebar-nav">
+            <li><a href="#" onclick="switchTab('system')"><svg class="ico ico-md"><use href="#i-settings"/></svg> 系统信息</a></li>
+            <li><a href="#" onclick="switchTab('admin')"><svg class="ico ico-md"><use href="#i-shield"/></svg> 管理员设置</a></li>
+        </ul>
+    </div>
+
+    <div class="header">
+        <div style="display:flex; align-items:center; gap:15px;">
+            <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+            <h1>
+                <span class="logo-icon"><svg class="ico ico-md"><use href="#i-shield"/></svg></span>
+                用户管理后台
+            </h1>
+        </div>
+        <div class="header-right">
+            <a href="/" class="btn-back"><svg class="ico ico-sm"><use href="#i-home"/></svg> 返回前台</a>
+            <button class="btn-logout" id="btn-logout"><svg class="ico ico-sm"><use href="#i-logout"/></svg> 退出登录</button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="container">
+            <div id="message-area"></div>
+
+        <div class="nav-tabs">
+            <button class="nav-tab active" id="tab-users" onclick="switchTab('users')"><svg class="ico ico-sm"><use href="#i-users"/></svg> 用户管理</button>
+            <button class="nav-tab" id="tab-stats" onclick="switchTab('stats')"><svg class="ico ico-sm"><use href="#i-chart"/></svg> 系统统计</button>
+            <button class="nav-tab" id="tab-logs" onclick="switchTab('logs')"><svg class="ico ico-sm"><use href="#i-scroll"/></svg> 操作日志</button>
+        </div>
+
+        <div id="panel-users" class="stats-card">
+            <div class="stats-header">
+                <h2><svg class="ico ico-md" style="color:var(--accent)"><use href="#i-users"/></svg> 用户列表</h2>
+                <span class="stats-badge" id="user-count">0 名用户</span>
+            </div>
+
+            <div class="toolbar">
+                <div class="search-bar">
+                    <input type="text" id="search-input" placeholder="搜索用户名或邮箱...">
+                    <button class="btn btn-primary" id="btn-refresh">
+                        <svg class="ico ico-sm"><use href="#i-refresh"/></svg>
+                        <span id="btn-refresh-text">刷新列表</span>
+                        <span class="loading-spinner" id="btn-refresh-spinner" style="display:none"></span>
+                    </button>
+                </div>
+                <button class="btn btn-success" id="btn-create"><svg class="ico ico-sm"><use href="#i-plus"/></svg> 创建用户</button>
+                <button class="btn btn-secondary" id="btn-export"><svg class="ico ico-sm"><use href="#i-download"/></svg> 导出</button>
+            </div>
+
+            <div class="batch-bar" id="batch-bar">
+                <span id="batch-count">已选择 0 项</span>
+                <button class="btn btn-warning" id="btn-batch-role"><svg class="ico ico-sm"><use href="#i-shield"/></svg> 切换为管理员</button>
+                <button class="btn btn-danger" id="btn-batch-delete"><svg class="ico ico-sm"><use href="#i-trash"/></svg> 批量删除</button>
+                <button class="btn btn-secondary" id="btn-batch-clear">取消选择</button>
+            </div>
+
+            <div class="user-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:40px"><input type="checkbox" id="select-all"></th>
+                            <th onclick="setSort('username')">用户名 <span class="sort-icon">⇅</span></th>
+                            <th onclick="setSort('email')">邮箱 <span class="sort-icon">⇅</span></th>
+                            <th>用户ID</th>
+                            <th>状态</th>
+                            <th onclick="setSort('role')">角色 <span class="sort-icon">⇅</span></th>
+                            <th onclick="setSort('created_at')">创建时间 <span class="sort-icon">⇅</span></th>
+                            <th onclick="setSort('last_sign_in_at')">最后登录 <span class="sort-icon">⇅</span></th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="user-table-body">
+                        <tr>
+                            <td colspan="9" class="empty-state">
+                                <div class="icon"><svg class="ico ico-xl"><use href="#i-refresh"/></svg></div>
+                                <div>加载用户列表中...</div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="pagination" id="pagination">
+                <div class="pagination-info" id="pagination-info"></div>
+                <div class="pagination-buttons">
+                    <select class="page-size" id="page-size">
+                        <option value="10">10条/页</option>
+                        <option value="20" selected>20条/页</option>
+                        <option value="50">50条/页</option>
+                        <option value="100">100条/页</option>
+                    </select>
+                    <button class="page-btn" id="btn-first">首页</button>
+                    <button class="page-btn" id="btn-prev">上一页</button>
+                    <span id="page-numbers"></span>
+                    <button class="page-btn" id="btn-next">下一页</button>
+                    <button class="page-btn" id="btn-last">末页</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="panel-stats" class="stats-card" style="display:none">
+            <div class="stats-header">
+                <h2><svg class="ico ico-md" style="color:var(--accent)"><use href="#i-chart"/></svg> 系统统计</h2>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="number" id="stat-total-users">0</div>
+                    <div class="label">总用户数</div>
+                </div>
+                <div class="stat-item">
+                    <div class="number" id="stat-daily-active">0</div>
+                    <div class="label">今日活跃</div>
+                </div>
+                <div class="stat-item">
+                    <div class="number" id="stat-weekly-active">0</div>
+                    <div class="label">本周活跃</div>
+                </div>
+                <div class="stat-item">
+                    <div class="number" id="stat-weekly-new">0</div>
+                    <div class="label">本周新增</div>
+                </div>
+                <div class="stat-item">
+                    <div class="number" id="stat-total-sessions">0</div>
+                    <div class="label">总会话数</div>
+                </div>
+                <div class="stat-item">
+                    <div class="number" id="stat-total-messages">0</div>
+                    <div class="label">总消息数</div>
+                </div>
+                <div class="stat-item">
+                    <div class="number" id="stat-weekly-messages">0</div>
+                    <div class="label">本周消息</div>
+                </div>
+            </div>
+
+            <h3 style="margin-bottom: 16px; color: var(--text); display:flex; align-items:center; gap:8px;"><svg class="ico ico-md" style="color:var(--accent)"><use href="#i-clock"/></svg> 最近活动</h3>
+            <div id="recent-activities">
+                <div class="empty-state">
+                    <div class="icon"><svg class="ico ico-xl"><use href="#i-inbox"/></svg></div>
+                    <div>暂无活动记录</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="panel-logs" class="stats-card" style="display:none">
+            <div class="stats-header">
+                <h2><svg class="ico ico-md" style="color:var(--accent)"><use href="#i-scroll"/></svg> 管理员操作日志</h2>
+                <button class="btn btn-secondary" id="btn-refresh-logs"><svg class="ico ico-sm"><use href="#i-refresh"/></svg> 刷新</button>
+            </div>
+            <div class="filter-bar">
+                <div class="filter-item">
+                    <label>操作类型</label>
+                    <select class="action-filter" id="log-action-filter">
+                        <option value="">全部</option>
+                        <option value="login">登录</option>
+                        <option value="logout">退出</option>
+                        <option value="create_user">创建用户</option>
+                        <option value="delete_user">删除用户</option>
+                        <option value="edit_user">编辑用户</option>
+                        <option value="reset_password">重置密码</option>
+                        <option value="change_role">切换角色</option>
+                        <option value="disable_user">禁用用户</option>
+                        <option value="enable_user">启用用户</option>
+                        <option value="generate_password">生成密码</option>
+                        <option value="change_admin_password">修改管理员密码</option>
+                        <option value="clean_cache">清理缓存</option>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label>目标用户ID</label>
+                    <input type="text" id="log-target-filter" placeholder="搜索用户ID">
+                </div>
+                <div class="filter-item">
+                    <label>开始时间</label>
+                    <input type="datetime-local" id="log-start-filter">
+                </div>
+                <div class="filter-item">
+                    <label>结束时间</label>
+                    <input type="datetime-local" id="log-end-filter">
+                </div>
+                <button class="btn btn-primary" style="margin-top:20px; padding:8px 16px;" onclick="loadLogs()"><svg class="ico ico-sm"><use href="#i-search"/></svg> 筛选</button>
+            </div>
+            <div id="logs-list">
+                <div class="empty-state">
+                    <div class="icon"><svg class="ico ico-xl"><use href="#i-inbox"/></svg></div>
+                    <div>暂无日志记录</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="panel-system" class="stats-card" style="display:none">
+            <div class="stats-header">
+                <h2><svg class="ico ico-md" style="color:var(--accent)"><use href="#i-settings"/></svg> 系统信息</h2>
+                <button class="btn btn-secondary" onclick="loadSystemInfo()"><svg class="ico ico-sm"><use href="#i-refresh"/></svg> 刷新</button>
+            </div>
+            <div class="system-grid">
+                <div class="system-card">
+                    <h4><svg class="ico ico-sm" style="color:var(--accent)"><use href="#i-database"/></svg> 系统概览</h4>
+                    <div class="system-item"><span class="label">操作系统</span><span class="value" id="sys-platform">-</span></div>
+                    <div class="system-item"><span class="label">系统版本</span><span class="value" id="sys-platform-version">-</span></div>
+                    <div class="system-item"><span class="label">主机名</span><span class="value" id="sys-hostname">-</span></div>
+                    <div class="system-item"><span class="label">Python版本</span><span class="value" id="sys-python">-</span></div>
+                    <div class="system-item"><span class="label">应用版本</span><span class="value" id="sys-app-version">-</span></div>
+                </div>
+                <div class="system-card">
+                    <h4><svg class="ico ico-sm" style="color:var(--amber)"><use href="#i-settings"/></svg> CPU信息</h4>
+                    <div class="system-item"><span class="label">CPU核心数</span><span class="value" id="sys-cpu-count">-</span></div>
+                    <div class="system-item">
+                        <span class="label">CPU使用率</span><span class="value" id="sys-cpu-percent">-</span>
+                    </div>
+                    <div class="progress-bar"><div class="progress-fill cpu" id="sys-cpu-bar" style="width:0%"></div></div>
+                </div>
+                <div class="system-card">
+                    <h4><svg class="ico ico-sm" style="color:var(--accent)"><use href="#i-database"/></svg> 内存信息</h4>
+                    <div class="system-item"><span class="label">总内存</span><span class="value" id="sys-memory-total">-</span></div>
+                    <div class="system-item"><span class="label">已用内存</span><span class="value" id="sys-memory-used">-</span></div>
+                    <div class="system-item">
+                        <span class="label">内存使用率</span><span class="value" id="sys-memory-percent">-</span>
+                    </div>
+                    <div class="progress-bar"><div class="progress-fill memory" id="sys-memory-bar" style="width:0%"></div></div>
+                </div>
+                <div class="system-card">
+                    <h4><svg class="ico ico-sm" style="color:var(--emerald)"><use href="#i-database"/></svg> 磁盘信息</h4>
+                    <div class="system-item"><span class="label">总容量</span><span class="value" id="sys-disk-total">-</span></div>
+                    <div class="system-item"><span class="label">已用容量</span><span class="value" id="sys-disk-used">-</span></div>
+                    <div class="system-item">
+                        <span class="label">磁盘使用率</span><span class="value" id="sys-disk-percent">-</span>
+                    </div>
+                    <div class="progress-bar"><div class="progress-fill disk" id="sys-disk-bar" style="width:0%"></div></div>
+                </div>
+                <div class="system-card">
+                    <h4><svg class="ico ico-sm" style="color:var(--sky)"><use href="#i-clock"/></svg> 运行状态</h4>
+                    <div class="system-item"><span class="label">系统运行时间</span><span class="value" id="sys-uptime">-</span></div>
+                    <div class="system-item"><span class="label">当前时间</span><span class="value" id="sys-current-time">-</span></div>
+                    <div class="system-item"><span class="label">管理员账号</span><span class="value" id="sys-admin-users">-</span></div>
+                </div>
+                <div class="system-card">
+                    <h4><svg class="ico ico-sm" style="color:var(--rose)"><use href="#i-settings"/></svg> 系统操作</h4>
+                    <button class="btn btn-warning" style="width:100%; padding:12px; margin-bottom:8px;" onclick="cleanCache()"><svg class="ico ico-sm"><use href="#i-broom"/></svg> 清理模板缓存</button>
+                    <div style="font-size:12px; color:var(--text-secondary);">缓存清理后可解决模板显示异常问题</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="panel-admin" class="stats-card" style="display:none">
+            <div class="stats-header">
+                <h2><svg class="ico ico-md" style="color:var(--accent)"><use href="#i-shield"/></svg> 管理员设置</h2>
+            </div>
+            <div style="max-width:500px; margin:0 auto;">
+                <div class="form-group">
+                    <label>当前管理员</label>
+                    <input type="text" id="admin-current-user" readonly style="background:var(--bg); color:var(--text-secondary);">
+                </div>
+                <h3 style="margin:24px 0 16px; color:var(--text); display:flex; align-items:center; gap:8px;"><svg class="ico ico-md" style="color:var(--accent)"><use href="#i-key"/></svg> 修改密码</h3>
+                <div class="form-group">
+                    <label>原密码</label>
+                    <input type="password" id="admin-old-password" placeholder="请输入原密码">
+                </div>
+                <div class="form-group">
+                    <label>新密码</label>
+                    <input type="password" id="admin-new-password" placeholder="请输入新密码（至少6位）">
+                </div>
+                <div class="form-group">
+                    <label>确认新密码</label>
+                    <input type="password" id="admin-confirm-password" placeholder="请再次输入新密码">
+                </div>
+                <div style="display:flex; gap:12px; margin-top:24px;">
+                    <button class="btn btn-submit" onclick="changeAdminPassword()">确认修改</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-create">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><svg class="ico ico-sm" style="color:var(--accent)"><use href="#i-plus"/></svg> 创建新用户</h3>
+                <button class="modal-close" onclick="closeModal('modal-create')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="create-username" placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label>邮箱 *</label>
+                    <input type="email" id="create-email" placeholder="请输入邮箱地址" required>
+                </div>
+                <div class="form-group">
+                    <label>密码 *</label>
+                    <input type="password" id="create-password" placeholder="请输入密码（至少6位）" required>
+                    <div class="small-text">密码将自动发送给用户</div>
+                </div>
+                <div class="form-group">
+                    <label>角色</label>
+                    <select id="create-role">
+                        <option value="authenticated">普通用户</option>
+                        <option value="admin">管理员</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeModal('modal-create')">取消</button>
+                <button class="btn-submit" id="btn-submit-create" onclick="submitCreateUser()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-edit">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><svg class="ico ico-sm" style="color:var(--accent)"><use href="#i-edit"/></svg> 编辑用户</h3>
+                <button class="modal-close" onclick="closeModal('modal-edit')">×</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-user-id">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="edit-username" placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label>邮箱</label>
+                    <input type="email" id="edit-email" placeholder="请输入邮箱地址">
+                </div>
+                <div class="form-group">
+                    <label>角色</label>
+                    <select id="edit-role">
+                        <option value="authenticated">普通用户</option>
+                        <option value="admin">管理员</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeModal('modal-edit')">取消</button>
+                <button class="btn-submit" id="btn-submit-edit" onclick="submitEditUser()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-reset">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><svg class="ico ico-sm" style="color:var(--accent)"><use href="#i-key"/></svg> 重置密码</h3>
+                <button class="modal-close" onclick="closeModal('modal-reset')">×</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="reset-user-id">
+                <div class="form-group">
+                    <label>新密码 *</label>
+                    <input type="password" id="reset-password" placeholder="请输入新密码（至少6位）" required>
+                </div>
+                <div class="form-group">
+                    <label>确认密码 *</label>
+                    <input type="password" id="reset-password-confirm" placeholder="请再次输入新密码" required>
+                </div>
+                <div class="small-text" style="color:var(--amber); display:flex; align-items:center; gap:4px;"><svg class="ico ico-sm"><use href="#i-alert"/></svg> 重置后用户将使用新密码登录</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeModal('modal-reset')">取消</button>
+                <button class="btn-submit" id="btn-submit-reset" onclick="submitResetPassword()">重置</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-role">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><svg class="ico ico-sm" style="color:var(--accent)"><use href="#i-shield"/></svg> 切换角色</h3>
+                <button class="modal-close" onclick="closeModal('modal-role')">×</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="role-user-id">
+                <div class="form-group">
+                    <label>选择角色</label>
+                    <select id="role-select">
+                        <option value="authenticated">普通用户</option>
+                        <option value="admin">管理员</option>
+                    </select>
+                </div>
+                <div class="small-text" style="color:var(--amber); display:flex; align-items:center; gap:4px;"><svg class="ico ico-sm"><use href="#i-alert"/></svg> 请谨慎操作，管理员权限可以访问所有功能</div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeModal('modal-role')">取消</button>
+                <button class="btn-submit" id="btn-submit-role" onclick="submitChangeRole()">确认切换</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="modal-detail">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><svg class="ico ico-sm" style="color:var(--accent)"><use href="#i-user"/></svg> 用户详情</h3>
+                <button class="modal-close" onclick="closeModal('modal-detail')">×</button>
+            </div>
+            <div class="modal-body modal-scroll" id="detail-content">
+                <div class="empty-state">
+                    <div class="icon"><svg class="ico ico-xl"><use href="#i-refresh"/></svg></div>
+                    <div>加载中...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeModal('modal-detail')">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+        // 当前状态
+        let allUsers = [];
+        let filteredUsers = [];
+        let currentPage = 1;
+        let perPage = 20;
+        let sortBy = 'created_at';
+        let order = 'DESC';
+        let selectedIds = new Set();
+        let currentAdmin = '';
+
+        // DOM 元素
+        const userTableBody = document.getElementById('user-table-body');
+        const searchInput = document.getElementById('search-input');
+        const btnRefresh = document.getElementById('btn-refresh');
+        const btnRefreshText = document.getElementById('btn-refresh-text');
+        const btnRefreshSpinner = document.getElementById('btn-refresh-spinner');
+        const btnLogout = document.getElementById('btn-logout');
+        const btnCreate = document.getElementById('btn-create');
+        const btnExport = document.getElementById('btn-export');
+        const userCountBadge = document.getElementById('user-count');
+        const messageArea = document.getElementById('message-area');
+        const batchBar = document.getElementById('batch-bar');
+        const batchCount = document.getElementById('batch-count');
+        const selectAllCheckbox = document.getElementById('select-all');
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            currentAdmin = getCookie('admin_user') || '';
+            loadUsers();
+        });
+
+        function getCookie(name) {
+            const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+            return match ? decodeURIComponent(match[2]) : '';
+        }
+
+        // 加载用户列表
+        async function loadUsers() {
+            setLoading(true);
+            hideMessages();
+
+            try {
+                const params = new URLSearchParams({
+                    page: currentPage,
+                    per_page: perPage,
+                    sort_by: sortBy,
+                    order: order,
+                    search: searchInput.value.trim()
+                });
+                const response = await fetch(`/admin/api/users?${params}`);
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    allUsers = data.users || [];
+                    filteredUsers = allUsers;
+                    const total = data.total || allUsers.length;
+                    const page = data.page || currentPage || 1;
+                    const pageSize = data.per_page || perPage || 20;
+                    currentPage = page;
+                    perPage = pageSize;
+                    userCountBadge.textContent = `${total} 名用户`;
+                    renderUsers(allUsers);
+                    renderPagination(total, page, pageSize);
+                    if (data.warning) showWarning(data.warning);
+                    if (data.source === 'local') {
+                        showToast('当前显示本地数据库用户', 'warning');
+                    }
+                } else {
+                    showError(data.error || '加载用户列表失败');
+                    renderEmpty('加载失败，请刷新重试');
+                }
+            } catch (error) {
+                showError('网络错误，请稍后重试');
+                renderEmpty('网络错误，请稍后重试');
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        function setLoading(loading) {
+            btnRefresh.disabled = loading;
+            btnRefreshText.style.display = loading ? 'none' : 'inline';
+            btnRefreshSpinner.style.display = loading ? 'inline-block' : 'none';
+        }
+
+        function renderUsers(users) {
+            if (!users || users.length === 0) {
+                renderEmpty(searchInput.value.trim() ? '没有找到匹配的用户' : '暂无用户数据');
+                return;
+            }
+
+            userTableBody.innerHTML = users.map(user => {
+                const isSelf = user.id === currentAdmin || user.username === currentAdmin || user.email === currentAdmin;
+                const isDisabled = user.disabled === true;
+                return `
+                <tr class="${selectedIds.has(user.id) ? 'selected' : ''}" data-id="${user.id}">
+                    <td><input type="checkbox" class="row-checkbox" value="${user.id}" ${selectedIds.has(user.id) ? 'checked' : ''}></td>
+                    <td>${escapeHtml(user.username || '未设置')}</td>
+                    <td>${escapeHtml(user.email || '-')}</td>
+                    <td style="font-family: monospace; font-size: 11px;">${user.id ? user.id.slice(0, 8) + '...' : '-'}</td>
+                    <td><span class="status-badge ${isDisabled ? 'status-disabled' : 'status-active'}">${isDisabled ? '已禁用' : '正常'}</span></td>
+                    <td><span class="role-badge ${user.role === 'admin' ? 'admin' : 'user'}">${user.role === 'admin' ? '管理员' : '普通用户'}</span></td>
+                    <td>${formatDate(user.created_at)}</td>
+                    <td>${user.last_sign_in_at ? formatDate(user.last_sign_in_at) : '从未登录'}</td>
+                    <td>
+                        <button class="btn-action btn-detail" onclick="openDetailModal('${user.id}')"><svg class="ico ico-sm"><use href="#i-eye"/></svg> 详情</button>
+                        <button class="btn-action btn-edit" onclick="openEditModal('${user.id}')"><svg class="ico ico-sm"><use href="#i-edit"/></svg> 编辑</button>
+                        <button class="btn-action btn-reset" onclick="openResetModal('${user.id}')"><svg class="ico ico-sm"><use href="#i-key"/></svg> 重置密码</button>
+                        <button class="btn-action btn-role" onclick="openRoleModal('${user.id}', '${user.role || 'authenticated'}')" ${isSelf ? 'disabled title="不能修改自己的角色"' : ''}><svg class="ico ico-sm"><use href="#i-shield"/></svg> 切换角色</button>
+                        <button class="btn-action ${isDisabled ? 'btn-enable' : 'btn-disable'}" onclick="${isDisabled ? `enableUser('${user.id}')` : `disableUser('${user.id}')`}" ${isSelf ? 'disabled title="不能禁用自己"' : ''}>${isDisabled ? '启用' : '禁用'}</button>
+                        <button class="btn-action btn-delete" onclick="deleteUser('${user.id}')" ${isSelf ? 'disabled title="不能删除自己"' : ''}><svg class="ico ico-sm"><use href="#i-trash"/></svg> 删除</button>
+                    </td>
+                </tr>
+            `}).join('');
+
+            // 绑定行内复选框
+            document.querySelectorAll('.row-checkbox').forEach(cb => {
+                cb.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        selectedIds.add(e.target.value);
+                    } else {
+                        selectedIds.delete(e.target.value);
+                    }
+                    updateBatchBar();
+                    const row = e.target.closest('tr');
+                    row.classList.toggle('selected', e.target.checked);
+                });
+            });
+        }
+
+        function renderEmpty(message) {
+            userTableBody.innerHTML = `
+                <tr>
+                    <td colspan="9" class="empty-state">
+                        <div class="icon"><svg class="ico ico-xl"><use href="#i-inbox"/></svg></div>
+                        <div>${message}</div>
+                    </td>
+                </tr>
+            `;
+            document.getElementById('page-numbers').innerHTML = '';
+        }
+
+        function renderPagination(total, page, pageSize) {
+            const totalPages = Math.max(1, Math.ceil(total / pageSize));
+            const start = (page - 1) * pageSize + 1;
+            const end = Math.min(page * pageSize, total);
+            document.getElementById('pagination-info').textContent =
+                total > 0 ? `显示 ${start}-${end} 条，共 ${total} 条` : '共 0 条';
+
+            document.getElementById('btn-first').disabled = page <= 1;
+            document.getElementById('btn-prev').disabled = page <= 1;
+            document.getElementById('btn-next').disabled = page >= totalPages;
+            document.getElementById('btn-last').disabled = page >= totalPages;
+
+            let html = '';
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= page - 2 && i <= page + 2)) {
+                    html += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+                } else if (i === page - 3 || i === page + 3) {
+                    html += `<span style="color:#94a3b8">...</span>`;
+                }
+            }
+            document.getElementById('page-numbers').innerHTML = html;
+        }
+
+        function goToPage(page) {
+            currentPage = page;
+            loadUsers();
+        }
+
+        function setSort(column) {
+            if (sortBy === column) {
+                order = order === 'ASC' ? 'DESC' : 'ASC';
+            } else {
+                sortBy = column;
+                order = 'DESC';
+            }
+            // 更新表头排序图标
+            document.querySelectorAll('.user-table th').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+            });
+            const headers = document.querySelectorAll('.user-table th');
+            const map = { 'username': 1, 'email': 2, 'role': 4, 'created_at': 5, 'last_sign_in_at': 6 };
+            const idx = map[column];
+            if (idx !== undefined) {
+                headers[idx].classList.add(order === 'ASC' ? 'sort-asc' : 'sort-desc');
+            }
+            currentPage = 1;
+            loadUsers();
+        }
+
+        // 全选
+        selectAllCheckbox.addEventListener('change', (e) => {
+            const checked = e.target.checked;
+            document.querySelectorAll('.row-checkbox').forEach(cb => {
+                if (checked) selectedIds.add(cb.value);
+                else selectedIds.delete(cb.value);
+                cb.checked = checked;
+                cb.closest('tr').classList.toggle('selected', checked);
+            });
+            updateBatchBar();
+        });
+
+        function updateBatchBar() {
+            const count = selectedIds.size;
+            batchCount.textContent = `已选择 ${count} 项`;
+            batchBar.classList.toggle('active', count > 0);
+            selectAllCheckbox.checked = count > 0 && document.querySelectorAll('.row-checkbox').length === count;
+        }
+
+        // 批量操作
+        document.getElementById('btn-batch-clear').addEventListener('click', () => {
+            selectedIds.clear();
+            document.querySelectorAll('.row-checkbox').forEach(cb => {
+                cb.checked = false;
+                cb.closest('tr').classList.remove('selected');
+            });
+            selectAllCheckbox.checked = false;
+            updateBatchBar();
+        });
+
+        document.getElementById('btn-batch-delete').addEventListener('click', async () => {
+            if (selectedIds.size === 0) return;
+            if (!confirm(`确定要删除选中的 ${selectedIds.size} 个用户吗？此操作不可恢复。`)) return;
+            await batchOperate('delete', Array.from(selectedIds));
+        });
+
+        document.getElementById('btn-batch-role').addEventListener('click', async () => {
+            if (selectedIds.size === 0) return;
+            const role = confirm('点击“确定”设为管理员，点击“取消”设为普通用户') ? 'admin' : 'authenticated';
+            await batchOperate('role', Array.from(selectedIds), role);
+        });
+
+        async function batchOperate(action, userIds, role) {
+            const btn = action === 'delete' ? document.getElementById('btn-batch-delete') : document.getElementById('btn-batch-role');
+            btn.disabled = true;
+            try {
+                const body = { action, user_ids: userIds };
+                if (role) body.role = role;
+                const response = await fetch('/admin/api/users/batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showToast(`${action === 'delete' ? '删除' : '角色切换'}成功 ${data.success_count} 个用户`, 'success');
+                    if (data.failed && data.failed.length > 0) {
+                        showWarning(`${data.failed.length} 个操作失败：${data.failed.map(f => f.error).join('；')}`);
+                    }
+                    selectedIds.clear();
+                    updateBatchBar();
+                    loadUsers();
+                } else {
+                    showError(data.error || '批量操作失败');
+                }
+            } catch (error) {
+                showError('网络错误，请稍后重试');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 导出
+        btnExport.addEventListener('click', () => {
+            window.location.href = '/admin/api/users/export';
+        });
+
+        // 删除用户
+        async function deleteUser(userId) {
+            if (!confirm('确定要删除该用户吗？此操作不可恢复。')) return;
+
+            try {
+                const response = await fetch(`/admin/api/users/${userId}`, { method: 'DELETE' });
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showToast('用户删除成功', 'success');
+                    loadUsers();
+                } else {
+                    showError(data.error || '删除失败');
+                }
+            } catch (error) {
+                showError('网络错误，请稍后重试');
+            }
+        }
+
+        // 搜索防抖
+        let searchTimeout;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                currentPage = 1;
+                loadUsers();
+            }, 300);
+        });
+
+        btnRefresh.addEventListener('click', loadUsers);
+
+        // 标签页切换
+        function switchTab(tab) {
+            document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('[id^="panel-"]').forEach(p => p.style.display = 'none');
+            document.querySelectorAll('.sidebar-nav a').forEach(a => a.classList.remove('active'));
+
+            document.querySelectorAll('.sidebar-nav a').forEach(a => {
+                if (a.getAttribute('onclick') && a.getAttribute('onclick').includes(`'${tab}'`)) {
+                    a.classList.add('active');
+                }
+            });
+
+            const tabBtn = document.getElementById(`tab-${tab}`);
+            if (tabBtn) tabBtn.classList.add('active');
+
+            const panel = document.getElementById(`panel-${tab}`);
+            if (panel) panel.style.display = 'block';
+
+            if (tab === 'stats') loadStats();
+            if (tab === 'logs') loadLogs();
+            if (tab === 'system') loadSystemInfo();
+            if (tab === 'admin') loadAdminInfo();
+        }
+
+        // 加载统计
+        async function loadStats() {
+            try {
+                const response = await fetch('/admin/api/stats');
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    const u = data.user_stats;
+                    const s = data.system_stats;
+
+                    document.getElementById('stat-total-users').textContent = u.total_users || 0;
+                    document.getElementById('stat-daily-active').textContent = u.daily_active || 0;
+                    document.getElementById('stat-weekly-active').textContent = u.weekly_active || 0;
+                    document.getElementById('stat-weekly-new').textContent = u.weekly_new || 0;
+                    document.getElementById('stat-total-sessions').textContent = s.total_sessions || 0;
+                    document.getElementById('stat-total-messages').textContent = s.total_messages || 0;
+                    document.getElementById('stat-weekly-messages').textContent = s.weekly_messages || 0;
+
+                    renderActivities(data.recent_activities);
+                } else {
+                    showError(data.error || '加载统计失败');
+                }
+            } catch (error) {
+                showError('加载统计失败：网络错误');
+            }
+        }
+
+        function renderActivities(activities) {
+            const container = document.getElementById('recent-activities');
+            if (!activities || activities.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon"><svg class="ico ico-xl"><use href="#i-inbox"/></svg></div>
+                        <div>暂无活动记录</div>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = activities.map(a => `
+                <div class="activity-item">
+                    <div class="info">
+                        <div class="user">${escapeHtml(a.username || a.email || '未知用户')}</div>
+                        <div class="action">创建会话: ${escapeHtml(a.session_title || '新对话')}</div>
+                    </div>
+                    <div class="time">${formatDate(a.created_at)}</div>
+                </div>
+            `).join('');
+        }
+
+        // 加载日志
+        async function loadLogs() {
+            const container = document.getElementById('logs-list');
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon"><svg class="ico ico-xl"><use href="#i-refresh"/></svg></div>
+                    <div>加载中...</div>
+                </div>
+            `;
+            try {
+                const actionType = document.getElementById('log-action-filter')?.value || '';
+                const targetUser = document.getElementById('log-target-filter')?.value || '';
+                const startTime = document.getElementById('log-start-filter')?.value || '';
+                const endTime = document.getElementById('log-end-filter')?.value || '';
+
+                let params = 'limit=50';
+                if (actionType) params += `&action_type=${encodeURIComponent(actionType)}`;
+                if (targetUser) params += `&target_user=${encodeURIComponent(targetUser)}`;
+                if (startTime) params += `&start_time=${encodeURIComponent(startTime)}`;
+                if (endTime) params += `&end_time=${encodeURIComponent(endTime)}`;
+
+                const response = await fetch(`/admin/api/logs?${params}`);
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    renderLogs(data.logs);
+                } else {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="icon"><svg class="ico ico-xl" style="color:var(--amber)"><use href="#i-alert"/></svg></div>
+                            <div>加载日志失败</div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon"><svg class="ico ico-xl" style="color:var(--amber)"><use href="#i-alert"/></svg></div>
+                        <div>网络错误</div>
+                    </div>
+                `;
+            }
+        }
+
+        function renderLogs(logs) {
+            const container = document.getElementById('logs-list');
+            if (!logs || logs.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="icon"><svg class="ico ico-xl"><use href="#i-inbox"/></svg></div>
+                        <div>暂无日志记录</div>
+                    </div>
+                `;
+                return;
+            }
+            const actionMap = {
+                login: '登录', logout: '退出', create_user: '创建用户',
+                delete_user: '删除用户', edit_user: '编辑用户',
+                reset_password: '重置密码', change_role: '切换角色',
+                batch_delete: '批量删除', batch_role: '批量切换角色'
+            };
+            container.innerHTML = logs.map(log => `
+                <div class="log-item">
+                    <div class="meta">
+                        <span><strong>${escapeHtml(log.admin_username || 'unknown')}</strong></span>
+                        <span style="color:var(--accent)">${actionMap[log.action] || log.action}</span>
+                        <span>${formatDate(log.created_at)}</span>
+                        <span>IP: ${escapeHtml(log.ip_address || '-')}</span>
+                    </div>
+                    <div class="detail">${escapeHtml(log.details || '')}</div>
+                </div>
+            `).join('');
+        }
+
+        document.getElementById('btn-refresh-logs').addEventListener('click', loadLogs);
+
+        // 模态框
+        function openModal(modalId) {
+            document.getElementById(modalId).classList.add('active');
+        }
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+
+        // 创建用户
+        btnCreate.addEventListener('click', () => {
+            document.getElementById('create-username').value = '';
+            document.getElementById('create-email').value = '';
+            document.getElementById('create-password').value = '';
+            document.getElementById('create-role').value = 'authenticated';
+            openModal('modal-create');
+        });
+
+        async function submitCreateUser() {
+            const username = document.getElementById('create-username').value.trim();
+            const email = document.getElementById('create-email').value.trim();
+            const password = document.getElementById('create-password').value.trim();
+            const role = document.getElementById('create-role').value;
+
+            if (!email || !password) { showError('邮箱和密码不能为空'); return; }
+            if (password.length < 6) { showError('密码长度至少6位'); return; }
+
+            const btn = document.getElementById('btn-submit-create');
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/admin/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password, role })
+                });
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showToast('用户创建成功', 'success');
+                    closeModal('modal-create');
+                    loadUsers();
+                } else {
+                    showError(data.error || '创建失败');
+                }
+            } catch (error) {
+                showError('网络错误，请稍后重试');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 编辑用户
+        async function openEditModal(userId) {
+            try {
+                const response = await fetch(`/admin/api/user/${userId}`);
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    const user = data.user;
+                    document.getElementById('edit-user-id').value = user.id;
+                    document.getElementById('edit-username').value = user.username || '';
+                    document.getElementById('edit-email').value = user.email || '';
+                    document.getElementById('edit-role').value = user.role || 'authenticated';
+                    openModal('modal-edit');
+                } else {
+                    showError(data.error || '加载用户信息失败');
+                }
+            } catch (error) {
+                showError('加载用户信息失败');
+            }
+        }
+
+        async function submitEditUser() {
+            const userId = document.getElementById('edit-user-id').value;
+            const username = document.getElementById('edit-username').value.trim();
+            const email = document.getElementById('edit-email').value.trim();
+            const role = document.getElementById('edit-role').value;
+
+            const btn = document.getElementById('btn-submit-edit');
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/admin/api/users/${userId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, role })
+                });
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showToast('用户信息更新成功', 'success');
+                    closeModal('modal-edit');
+                    loadUsers();
+                } else {
+                    showError(data.error || '更新失败');
+                }
+            } catch (error) {
+                showError('网络错误，请稍后重试');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 重置密码
+        function openResetModal(userId) {
+            document.getElementById('reset-user-id').value = userId;
+            document.getElementById('reset-password').value = '';
+            document.getElementById('reset-password-confirm').value = '';
+            openModal('modal-reset');
+        }
+
+        async function submitResetPassword() {
+            const userId = document.getElementById('reset-user-id').value;
+            const password = document.getElementById('reset-password').value.trim();
+            const confirmPassword = document.getElementById('reset-password-confirm').value.trim();
+
+            if (!password || !confirmPassword) { showError('请输入密码'); return; }
+            if (password !== confirmPassword) { showError('两次输入的密码不一致'); return; }
+            if (password.length < 6) { showError('密码长度至少6位'); return; }
+
+            const btn = document.getElementById('btn-submit-reset');
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/admin/api/users/${userId}/password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showToast('密码重置成功', 'success');
+                    closeModal('modal-reset');
+                } else {
+                    showError(data.error || '重置失败');
+                }
+            } catch (error) {
+                showError('网络错误，请稍后重试');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 切换角色
+        function openRoleModal(userId, currentRole) {
+            document.getElementById('role-user-id').value = userId;
+            document.getElementById('role-select').value = currentRole;
+            openModal('modal-role');
+        }
+
+        async function submitChangeRole() {
+            const userId = document.getElementById('role-user-id').value;
+            const role = document.getElementById('role-select').value;
+
+            const btn = document.getElementById('btn-submit-role');
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/admin/api/users/${userId}/role`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ role })
+                });
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showToast('角色切换成功', 'success');
+                    closeModal('modal-role');
+                    loadUsers();
+                } else {
+                    showError(data.error || '切换失败');
+                }
+            } catch (error) {
+                showError('网络错误，请稍后重试');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 用户详情
+        async function openDetailModal(userId) {
+            openModal('modal-detail');
+            const content = document.getElementById('detail-content');
+            content.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon"><svg class="ico ico-xl"><use href="#i-refresh"/></svg></div>
+                    <div>加载用户详情中...</div>
+                </div>
+            `;
+            try {
+                const response = await fetch(`/admin/api/user/${userId}`);
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    const u = data.user;
+                    const sessions = u.recent_sessions || [];
+                    content.innerHTML = `
+                        <div class="detail-grid">
+                            <div class="detail-item"><div class="label">用户ID</div><div class="value">${escapeHtml(u.id || '-')}</div></div>
+                            <div class="detail-item"><div class="label">用户名</div><div class="value">${escapeHtml(u.username || '-')}</div></div>
+                            <div class="detail-item"><div class="label">邮箱</div><div class="value">${escapeHtml(u.email || '-')}</div></div>
+                            <div class="detail-item"><div class="label">角色</div><div class="value">${u.role === 'admin' ? '管理员' : '普通用户'}</div></div>
+                            <div class="detail-item"><div class="label">创建时间</div><div class="value">${formatDate(u.created_at)}</div></div>
+                            <div class="detail-item"><div class="label">最后登录</div><div class="value">${u.last_sign_in_at ? formatDate(u.last_sign_in_at) : '从未登录'}</div></div>
+                            <div class="detail-item"><div class="label">会话数</div><div class="value">${u.session_count !== undefined ? u.session_count : '-'}</div></div>
+                            <div class="detail-item"><div class="label">消息数</div><div class="value">${u.message_count !== undefined ? u.message_count : '-'}</div></div>
+                        </div>
+
+                        <div style="background:var(--bg); border-radius:12px; padding:16px; margin-bottom:20px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                                <h4 style="color:var(--text);">密码管理</h4>
+                                <span class="status-badge status-inactive">已加密存储</span>
+                            </div>
+                            <div style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">
+                                用户密码采用哈希加密存储，无法直接查看明文。你可以生成一个新的随机密码（生成后会立即显示，请注意保存）。
+                            </div>
+                            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                                <button class="btn btn-primary" id="btn-gen-pwd" style="padding:8px 16px; font-size:13px;" onclick="generatePassword('${u.id}')"><svg class="ico ico-sm"><use href="#i-key"/></svg> 生成随机密码</button>
+                                <button class="btn btn-secondary" style="padding:8px 16px; font-size:13px;" onclick="openResetModal('${u.id}'); closeModal('modal-detail');">手动重置密码</button>
+                            </div>
+                            <div id="gen-pwd-result" style="margin-top:12px; display:none;">
+                                <div style="background:white; border:2px dashed var(--accent); border-radius:10px; padding:14px; text-align:center;">
+                                    <div style="font-size:12px; color:var(--text-secondary); margin-bottom:6px;">新密码（请务必妥善保存）</div>
+                                    <div style="font-size:22px; font-weight:700; color:var(--accent); letter-spacing:2px; font-family:monospace;" id="gen-pwd-text"></div>
+                                    <div style="margin-top:10px; display:flex; gap:8px; justify-content:center;">
+                                        <button class="btn btn-primary" style="padding:6px 14px; font-size:12px;" onclick="copyGeneratedPassword()"><svg class="ico ico-sm"><use href="#i-copy"/></svg> 复制</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h4 style="margin-bottom: 12px; color: var(--text);">最近会话</h4>
+                        <div class="session-list">
+                            ${sessions.length > 0 ? sessions.map(s => `
+                                <div class="session-item">
+                                    <span class="title">${escapeHtml(s.title || '新对话')}</span>
+                                    <span class="time">${formatDate(s.created_at)}</span>
+                                </div>
+                            `).join('') : '<div class="small-text">暂无会话</div>'}
+                        </div>
+                    `;
+                } else {
+                    content.innerHTML = `<div class="empty-state"><div class="icon"><svg class="ico ico-xl"><use href="#i-alert"/></svg></div><div>${data.error || '加载失败'}</div></div>`;
+                }
+            } catch (error) {
+                content.innerHTML = `<div class="empty-state"><div class="icon"><svg class="ico ico-xl"><use href="#i-alert"/></svg></div><div>网络错误</div></div>`;
+            }
+        }
+
+        // 生成随机密码
+        async function generatePassword(userId) {
+            const btn = document.getElementById('btn-gen-pwd');
+            const resultDiv = document.getElementById('gen-pwd-result');
+            const pwdText = document.getElementById('gen-pwd-text');
+            if (!btn || !resultDiv || !pwdText) return;
+
+            if (!confirm('确定要为该用户生成一个新的随机密码吗？生成后原密码将失效。')) return;
+
+            btn.disabled = true;
+            btn.textContent = '生成中...';
+            try {
+                const response = await fetch(`/admin/api/users/${userId}/generate_password`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    pwdText.textContent = data.password;
+                    resultDiv.style.display = 'block';
+                    showToast('密码生成成功，请妥善保存！', 'success');
+                } else {
+                    showToast(data.error || '生成失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<svg class="ico ico-sm"><use href="#i-key"/></svg> 生成随机密码';
+            }
+        }
+
+        // 复制生成的密码
+        function copyGeneratedPassword() {
+            const pwdText = document.getElementById('gen-pwd-text');
+            if (!pwdText) return;
+            const text = pwdText.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('密码已复制到剪贴板', 'success');
+            }).catch(() => {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                try { document.execCommand('copy'); showToast('密码已复制', 'success'); } catch (e) {}
+                document.body.removeChild(textarea);
+            });
+        }
+
+        // 分页按钮
+        document.getElementById('btn-first').addEventListener('click', () => goToPage(1));
+        document.getElementById('btn-prev').addEventListener('click', () => goToPage(currentPage - 1));
+        document.getElementById('btn-next').addEventListener('click', () => goToPage(currentPage + 1));
+        document.getElementById('btn-last').addEventListener('click', () => goToPage(Math.ceil((filteredUsers.length || 1) / perPage)));
+        document.getElementById('page-size').addEventListener('change', (e) => {
+            perPage = parseInt(e.target.value);
+            currentPage = 1;
+            loadUsers();
+        });
+
+        // 退出登录
+        btnLogout.addEventListener('click', () => {
+            window.location.href = '/admin/logout';
+        });
+
+        // 消息提示
+        function showMessage(msg, type) {
+            const div = document.createElement('div');
+            div.className = `message ${type}-message show`;
+            div.innerHTML = `${msg}<button class="message-close" onclick="this.parentElement.remove()">×</button>`;
+            messageArea.appendChild(div);
+            if (type === 'success') {
+                setTimeout(() => div.remove(), 4000);
+            }
+        }
+
+        function showError(msg) {
+            hideMessages();
+            showMessage(msg, 'error');
+        }
+
+        function showWarning(msg) {
+            hideMessages();
+            showMessage(msg, 'warning');
+        }
+
+        function hideMessages() {
+            messageArea.innerHTML = '';
+        }
+
+        // Toast 轻提示
+        function showToast(msg, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // 工具函数
+        function formatDate(dateString) {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return dateString;
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(text);
+            return div.innerHTML;
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('active');
+            document.getElementById('sidebar-overlay').classList.toggle('active');
+        }
+
+        async function loadSystemInfo() {
+            try {
+                const response = await fetch('/admin/api/system_info');
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    const s = data.system;
+                    document.getElementById('sys-platform').textContent = s.platform || '-';
+                    document.getElementById('sys-platform-version').textContent = s.platform_version || '-';
+                    document.getElementById('sys-hostname').textContent = s.hostname || '-';
+                    document.getElementById('sys-python').textContent = s.python_version || '-';
+                    document.getElementById('sys-app-version').textContent = s.app_version || '-';
+                    document.getElementById('sys-cpu-count').textContent = s.cpu_count || '-';
+                    document.getElementById('sys-cpu-percent').textContent = s.cpu_percent !== null ? s.cpu_percent + '%' : '-';
+                    document.getElementById('sys-cpu-bar').style.width = s.cpu_percent !== null ? s.cpu_percent + '%' : '0%';
+                    document.getElementById('sys-memory-total').textContent = s.memory_total !== null ? s.memory_total + ' GB' : '-';
+                    document.getElementById('sys-memory-used').textContent = s.memory_used !== null ? s.memory_used + ' GB' : '-';
+                    document.getElementById('sys-memory-percent').textContent = s.memory_percent !== null ? s.memory_percent + '%' : '-';
+                    document.getElementById('sys-memory-bar').style.width = s.memory_percent !== null ? s.memory_percent + '%' : '0%';
+                    document.getElementById('sys-disk-total').textContent = s.disk_total !== null ? s.disk_total + ' GB' : '-';
+                    document.getElementById('sys-disk-used').textContent = s.disk_used !== null ? s.disk_used + ' GB' : '-';
+                    document.getElementById('sys-disk-percent').textContent = s.disk_percent !== null ? s.disk_percent + '%' : '-';
+                    document.getElementById('sys-disk-bar').style.width = s.disk_percent !== null ? s.disk_percent + '%' : '0%';
+                    
+                    if (s.uptime !== null) {
+                        const days = Math.floor(s.uptime / 86400);
+                        const hours = Math.floor((s.uptime % 86400) / 3600);
+                        const minutes = Math.floor((s.uptime % 3600) / 60);
+                        document.getElementById('sys-uptime').textContent = `${days}天 ${hours}小时 ${minutes}分钟`;
+                    } else {
+                        document.getElementById('sys-uptime').textContent = '-';
+                    }
+                    
+                    document.getElementById('sys-current-time').textContent = s.current_time || '-';
+                    document.getElementById('sys-admin-users').textContent = s.admin_users ? s.admin_users.join(', ') : '-';
+                }
+            } catch (e) {
+                showToast('加载系统信息失败', 'error');
+            }
+        }
+
+        async function cleanCache() {
+            if (!confirm('确定要清理模板缓存吗？')) return;
+            try {
+                const response = await fetch('/admin/api/clean_cache', { method: 'POST' });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showToast(data.message, 'success');
+                } else {
+                    showToast(data.error || '清理失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+        }
+
+        function loadAdminInfo() {
+            document.getElementById('admin-current-user').value = currentAdmin || 'unknown';
+        }
+
+        async function changeAdminPassword() {
+            const oldPwd = document.getElementById('admin-old-password').value;
+            const newPwd = document.getElementById('admin-new-password').value;
+            const confirmPwd = document.getElementById('admin-confirm-password').value;
+
+            if (!oldPwd || !newPwd || !confirmPwd) {
+                showToast('请填写所有字段', 'warning');
+                return;
+            }
+            if (newPwd !== confirmPwd) {
+                showToast('两次密码不一致', 'warning');
+                return;
+            }
+            if (newPwd.length < 6) {
+                showToast('密码至少6位', 'warning');
+                return;
+            }
+
+            try {
+                const response = await fetch('/admin/api/admin/change_password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ old_password: oldPwd, new_password: newPwd, confirm_password: confirmPwd })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showToast(data.message, 'success');
+                    setTimeout(() => { window.location.href = '/admin/logout'; }, 2000);
+                } else {
+                    showToast(data.error || '修改失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+        }
+
+        async function disableUser(userId) {
+            if (!confirm('确定要禁用该用户吗？禁用后用户将无法登录。')) return;
+            try {
+                const response = await fetch(`/admin/api/users/${userId}/disable`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showToast(data.message, 'success');
+                    loadUsers();
+                } else {
+                    showToast(data.error || '禁用失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+        }
+
+        async function enableUser(userId) {
+            try {
+                const response = await fetch(`/admin/api/users/${userId}/enable`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showToast(data.message, 'success');
+                    loadUsers();
+                } else {
+                    showToast(data.error || '启用失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+        }
+    </script>
+</body>
+</html>
