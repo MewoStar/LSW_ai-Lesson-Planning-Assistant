@@ -1164,7 +1164,7 @@
         </div>
         <div class="header-right">
             <a href="/" class="btn-back"><svg class="ico ico-sm"><use href="#i-home"/></svg> 返回前台</a>
-            <button class="btn-logout" id="btn-logout"><svg class="ico ico-sm"><use href="#i-logout"/></svg> 退出登录</button>
+            <a href="/admin/logout" class="btn-logout"><svg class="ico ico-sm"><use href="#i-logout"/></svg> 退出登录</a>
         </div>
     </div>
 
@@ -1419,6 +1419,96 @@
                     <button class="btn btn-submit" onclick="changeAdminPassword()">确认修改</button>
                 </div>
             </div>
+
+            <!-- 仅超管可见：管理员账号管理 -->
+            <div id="admin-accounts-section" style="display:none; margin-top:32px; padding-top:24px; border-top:1px solid var(--border);">
+                <h3 style="margin-bottom:16px; color:var(--text); display:flex; align-items:center; gap:8px;">
+                    <svg class="ico ico-md" style="color:var(--accent)"><use href="#i-shield"/></svg> 管理员账号管理
+                    <span class="small-text" style="margin-left:8px;">（仅超级管理员可操作）</span>
+                </h3>
+                <div style="display:flex; gap:12px; margin-bottom:16px;">
+                    <button class="btn btn-success" onclick="openCreateAdminModal()"><svg class="ico ico-sm"><use href="#i-plus"/></svg> 创建管理员</button>
+                    <button class="btn btn-secondary" onclick="loadAdminAccounts()"><svg class="ico ico-sm"><use href="#i-refresh"/></svg> 刷新</button>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table" style="width:100%; border-collapse:collapse;">
+                        <thead>
+                            <tr style="background:var(--bg);">
+                                <th style="padding:10px; text-align:left;">登录账号</th>
+                                <th style="padding:10px; text-align:left;">显示名</th>
+                                <th style="padding:10px; text-align:left;">角色</th>
+                                <th style="padding:10px; text-align:left;">状态</th>
+                                <th style="padding:10px; text-align:left;">创建时间</th>
+                                <th style="padding:10px; text-align:left;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-accounts-tbody">
+                            <tr><td colspan="6" style="padding:20px; text-align:center; color:var(--text-secondary);">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 创建管理员模态框 -->
+    <div class="modal-overlay" id="modal-create-admin">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><svg class="ico ico-sm" style="color:var(--accent)"><use href="#i-plus"/></svg> 创建管理员</h3>
+                <button class="modal-close" onclick="closeModal('modal-create-admin')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>登录账号 *</label>
+                    <input type="text" id="create-admin-username" placeholder="2-20位，字母/数字/下划线/中文">
+                    <div class="small-text">登录账号创建后不可修改</div>
+                </div>
+                <div class="form-group">
+                    <label>显示名</label>
+                    <input type="text" id="create-admin-displayname" placeholder="留空则使用登录账号">
+                </div>
+                <div class="form-group">
+                    <label>密码 *</label>
+                    <input type="password" id="create-admin-password" placeholder="至少6位">
+                </div>
+                <div class="form-group">
+                    <label>角色</label>
+                    <select id="create-admin-role">
+                        <option value="0">普通管理员</option>
+                        <option value="1">超级管理员</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeModal('modal-create-admin')">取消</button>
+                <button class="btn-submit" id="btn-submit-create-admin" onclick="submitCreateAdmin()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 重置管理员密码模态框 -->
+    <div class="modal-overlay" id="modal-reset-admin-pwd">
+        <div class="modal">
+            <div class="modal-header">
+                <h3><svg class="ico ico-sm" style="color:var(--accent)"><use href="#i-key"/></svg> 重置管理员密码</h3>
+                <button class="modal-close" onclick="closeModal('modal-reset-admin-pwd')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>目标管理员</label>
+                    <input type="text" id="reset-admin-target" readonly style="background:var(--bg);">
+                </div>
+                <div class="form-group">
+                    <label>新密码</label>
+                    <input type="text" id="reset-admin-password" placeholder="留空则自动生成随机密码">
+                    <div class="small-text">重置后该管理员所有会话将立即失效，需要用新密码重新登录</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeModal('modal-reset-admin-pwd')">取消</button>
+                <button class="btn-submit" id="btn-submit-reset-admin" onclick="submitResetAdminPwd()">重置</button>
+            </div>
         </div>
     </div>
 
@@ -1566,7 +1656,9 @@
         let sortBy = 'created_at';
         let order = 'DESC';
         let selectedIds = new Set();
-        let currentAdmin = '';
+        let currentAdmin = '{{ user.username }}';
+        const isSuperAdmin = {{ 'true' if user.is_super else 'false' }};
+        const currentAdminId = '{{ user.id }}';
 
         // DOM 元素
         const userTableBody = document.getElementById('user-table-body');
@@ -1574,7 +1666,6 @@
         const btnRefresh = document.getElementById('btn-refresh');
         const btnRefreshText = document.getElementById('btn-refresh-text');
         const btnRefreshSpinner = document.getElementById('btn-refresh-spinner');
-        const btnLogout = document.getElementById('btn-logout');
         const btnCreate = document.getElementById('btn-create');
         const btnExport = document.getElementById('btn-export');
         const userCountBadge = document.getElementById('user-count');
@@ -1585,8 +1676,13 @@
 
         // 初始化
         document.addEventListener('DOMContentLoaded', () => {
-            currentAdmin = getCookie('admin_user') || '';
             loadUsers();
+            // 仅超管显示并加载管理员账号管理面板
+            if (isSuperAdmin) {
+                const adminSection = document.getElementById('admin-accounts-section');
+                if (adminSection) adminSection.style.display = 'block';
+                loadAdminAccounts();
+            }
         });
 
         function getCookie(name) {
@@ -2315,11 +2411,6 @@
             loadUsers();
         });
 
-        // 退出登录
-        btnLogout.addEventListener('click', () => {
-            window.location.href = '/admin/logout';
-        });
-
         // 消息提示
         function showMessage(msg, type) {
             const div = document.createElement('div');
@@ -2440,7 +2531,9 @@
         }
 
         function loadAdminInfo() {
-            document.getElementById('admin-current-user').value = currentAdmin || 'unknown';
+            // 显示登录账号（account）而非显示名，便于管理员识别自己用什么账号登录
+            const accountEl = document.getElementById('admin-current-user');
+            if (accountEl) accountEl.value = '{{ user.account }}' || 'unknown';
         }
 
         async function changeAdminPassword() {
@@ -2470,9 +2563,233 @@
                 const data = await response.json();
                 if (response.ok && data.success) {
                     showToast(data.message, 'success');
-                    setTimeout(() => { window.location.href = '/admin/logout'; }, 2000);
+                    setTimeout(async () => {
+                        try {
+                            await fetch('/admin/logout', { method: 'POST' });
+                        } catch (err) {
+                            // 忽略网络错误，继续跳转到登录页
+                        }
+                        window.location.href = '/admin/login';
+                    }, 2000);
                 } else {
                     showToast(data.error || '修改失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+        }
+
+        // ===== 管理员账号管理（仅超管）=====
+        let pendingResetAdminId = '';
+
+        async function loadAdminAccounts() {
+            const tbody = document.getElementById('admin-accounts-tbody');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="6" style="padding:20px; text-align:center; color:var(--text-secondary);">加载中...</td></tr>';
+            try {
+                const response = await fetch('/admin/api/admin/users');
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    tbody.innerHTML = `<tr><td colspan="6" style="padding:20px; text-align:center; color:var(--danger);">${escapeHtml(data.error || '加载失败')}</td></tr>`;
+                    return;
+                }
+                renderAdminAccounts(data.admins || []);
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="6" style="padding:20px; text-align:center; color:var(--danger);">网络错误</td></tr>';
+            }
+        }
+
+        function renderAdminAccounts(admins) {
+            const tbody = document.getElementById('admin-accounts-tbody');
+            if (!admins || admins.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="padding:20px; text-align:center; color:var(--text-secondary);">暂无管理员</td></tr>';
+                return;
+            }
+            tbody.innerHTML = admins.map(a => {
+                const isSelf = a.id === currentAdminId;
+                const roleLabel = a.is_super
+                    ? '<span style="color:var(--accent); font-weight:600;">超级管理员</span>'
+                    : '<span style="color:var(--text-secondary);">普通管理员</span>';
+                const statusLabel = a.is_active
+                    ? '<span style="color:var(--success);">正常</span>'
+                    : '<span style="color:var(--danger);">已禁用</span>';
+                const actions = [];
+                if (!isSelf) {
+                    actions.push(`<button class="btn btn-sm btn-secondary" onclick="resetAdminPwd('${a.id}','${escapeHtml(a.username)}')">重置密码</button>`);
+                    if (a.is_active) {
+                        actions.push(`<button class="btn btn-sm btn-warning" onclick="toggleAdminActive('${a.id}', false)">禁用</button>`);
+                    } else {
+                        actions.push(`<button class="btn btn-sm btn-success" onclick="toggleAdminActive('${a.id}', true)">启用</button>`);
+                    }
+                    if (!a.is_super) {
+                        actions.push(`<button class="btn btn-sm btn-primary" onclick="promoteAdmin('${a.id}')">设为超管</button>`);
+                    }
+                    actions.push(`<button class="btn btn-sm btn-danger" onclick="deleteAdminAccount('${a.id}','${escapeHtml(a.username)}')">删除</button>`);
+                } else {
+                    actions.push('<span class="small-text">（当前账号）</span>');
+                }
+                return `
+                <tr>
+                    <td style="padding:10px;">${escapeHtml(a.username)}</td>
+                    <td style="padding:10px;">${escapeHtml(a.display_name || '-')}</td>
+                    <td style="padding:10px;">${roleLabel}</td>
+                    <td style="padding:10px;">${statusLabel}</td>
+                    <td style="padding:10px; color:var(--text-secondary); font-size:13px;">${escapeHtml(a.created_at || '-')}</td>
+                    <td style="padding:10px;"><div style="display:flex; gap:6px; flex-wrap:wrap;">${actions.join('')}</div></td>
+                </tr>`;
+            }).join('');
+        }
+
+        function openCreateAdminModal() {
+            document.getElementById('create-admin-username').value = '';
+            document.getElementById('create-admin-displayname').value = '';
+            document.getElementById('create-admin-password').value = '';
+            document.getElementById('create-admin-role').value = '0';
+            openModal('modal-create-admin');
+        }
+
+        async function submitCreateAdmin() {
+            const username = document.getElementById('create-admin-username').value.trim();
+            const displayName = document.getElementById('create-admin-displayname').value.trim();
+            const password = document.getElementById('create-admin-password').value;
+            const isSuper = document.getElementById('create-admin-role').value === '1';
+
+            if (!username || !password) {
+                showToast('请填写登录账号和密码', 'warning');
+                return;
+            }
+            if (password.length < 6) {
+                showToast('密码至少6位', 'warning');
+                return;
+            }
+
+            const btn = document.getElementById('btn-submit-create-admin');
+            btn.disabled = true;
+            btn.textContent = '创建中...';
+            try {
+                const response = await fetch('/admin/api/admin/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username, password,
+                        display_name: displayName || null,
+                        is_super: isSuper
+                    })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showToast(`管理员 ${username} 创建成功`, 'success');
+                    closeModal('modal-create-admin');
+                    loadAdminAccounts();
+                } else {
+                    showToast(data.error || '创建失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '创建';
+            }
+        }
+
+        function resetAdminPwd(adminId, adminUsername) {
+            pendingResetAdminId = adminId;
+            document.getElementById('reset-admin-target').value = adminUsername;
+            document.getElementById('reset-admin-password').value = '';
+            openModal('modal-reset-admin-pwd');
+        }
+
+        async function submitResetAdminPwd() {
+            if (!pendingResetAdminId) return;
+            const newPwd = document.getElementById('reset-admin-password').value;
+            if (newPwd && newPwd.length < 6) {
+                showToast('密码至少6位', 'warning');
+                return;
+            }
+            const btn = document.getElementById('btn-submit-reset-admin');
+            btn.disabled = true;
+            btn.textContent = '重置中...';
+            try {
+                const response = await fetch(`/admin/api/admin/users/${pendingResetAdminId}/reset_password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newPwd ? { new_password: newPwd } : {})
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    const pwd = data.password;
+                    showToast('密码已重置', 'success');
+                    // 显示新密码（仅一次），提供复制按钮
+                    if (pwd) {
+                        setTimeout(() => {
+                            if (confirm(`新密码：${pwd}\n\n点击"确定"复制到剪贴板，"取消"关闭。`)) {
+                                navigator.clipboard.writeText(pwd).then(() => showToast('已复制', 'success')).catch(() => showToast('复制失败，请手动记录', 'warning'));
+                            }
+                        }, 500);
+                    }
+                    closeModal('modal-reset-admin-pwd');
+                    loadAdminAccounts();
+                } else {
+                    showToast(data.error || '重置失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '重置';
+            }
+        }
+
+        async function toggleAdminActive(adminId, active) {
+            if (!confirm(active ? '确定启用该管理员？' : '确定禁用该管理员？禁用后该管理员将立即下线且无法登录。')) return;
+            try {
+                const response = await fetch(`/admin/api/admin/users/${adminId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_active: active })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showToast(active ? '已启用' : '已禁用', 'success');
+                    loadAdminAccounts();
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+        }
+
+        async function promoteAdmin(adminId) {
+            if (!confirm('确定将该管理员提升为超级管理员？')) return;
+            try {
+                const response = await fetch(`/admin/api/admin/users/${adminId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_super: true })
+                });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showToast('已提升为超级管理员', 'success');
+                    loadAdminAccounts();
+                } else {
+                    showToast(data.error || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('网络错误', 'error');
+            }
+        }
+
+        async function deleteAdminAccount(adminId, adminUsername) {
+            if (!confirm(`确定删除管理员 "${adminUsername}"？此操作不可恢复，该管理员的所有会话将立即失效。`)) return;
+            try {
+                const response = await fetch(`/admin/api/admin/users/${adminId}`, { method: 'DELETE' });
+                const data = await response.json();
+                if (response.ok && data.success) {
+                    showToast('已删除', 'success');
+                    loadAdminAccounts();
+                } else {
+                    showToast(data.error || '删除失败', 'error');
                 }
             } catch (e) {
                 showToast('网络错误', 'error');

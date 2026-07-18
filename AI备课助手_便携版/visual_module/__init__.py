@@ -1,0 +1,1 @@
+from .visual_module_backend import register_visual_routes

@@ -51,6 +51,34 @@ def _check_visual_rate_limit(ip: str) -> bool:
     return True
 
 
+def _classify_ai_error(e):
+    """识别常见 AI API 异常，返回 (用户可读提示, HTTP状态码)。
+
+    不向客户端暴露原始异常细节，但保留可读的归类提示。
+    """
+    status_code = getattr(e, 'status_code', None)
+    raw = str(e) or ''
+    low = raw.lower()
+    # 余额不足 / 配额用完（智谱 code 1113 等）
+    if ('余额不足' in raw or 'insufficient' in low or 'quota' in low
+            or '1113' in raw or 'resource' in low and 'package' in low):
+        return 'AI 服务余额不足或配额已用完，请联系管理员充值后重试', 402
+    # API Key 无效 / 鉴权失败
+    if status_code == 401 or 'api key' in low or 'invalid key' in low \
+            or 'authentication' in low or 'unauthorized' in low:
+        return 'API Key 无效或未配置，请联系管理员', 401
+    # 超时
+    if 'timeout' in low or 'timed out' in low or status_code == 504:
+        return 'AI 请求超时，请稍后重试', 504
+    # 限流（非余额类）
+    if status_code == 429 or 'rate limit' in low:
+        return '请求过于频繁，请稍后重试', 429
+    # 连接错误
+    if 'connection' in low or 'network' in low:
+        return '网络连接异常，请检查网络后重试', 502
+    return 'AI 请求失败，请稍后重试', 500
+
+
 # --------------------------------------------
 # 集成函数：注册可视化模块所有路由
 # --------------------------------------------
@@ -127,9 +155,10 @@ def register_visual_routes(
                 return jsonify({"success": False, "error": "未知的生成类型"}), 400
         except Exception as e:
             traceback.print_exc()
-            print(f"[api_visual_generate] 异常: {e}")
-            # 不暴露完整异常信息给前端，避免泄露敏感路径/API key
-            return jsonify({"success": False, "error": "生成失败，请稍后重试"}), 500
+            print(f"[api_visual_generate] 异常: {type(e).__name__}: {e}")
+            # 分类错误提示，避免泄露敏感路径/API key，但保留可读归类（余额不足等）
+            msg, code = _classify_ai_error(e)
+            return jsonify({"success": False, "error": msg}), code
 
     return app
 

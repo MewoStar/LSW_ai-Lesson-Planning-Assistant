@@ -291,15 +291,26 @@ def register_exam_routes(
             return jsonify({"success": False, "error": f"生成失败：{str(ve)}"}), 500
         except Exception as e:
             traceback.print_exc()
-            error_str = str(e).lower()
-            if 'timeout' in error_str or 'timed out' in error_str:
+            error_str = str(e)
+            low = error_str.lower()
+            status_code = getattr(e, 'status_code', None)
+            # 余额不足 / 配额用完（智谱 code 1113 等）
+            if ('余额不足' in error_str or 'insufficient' in low or 'quota' in low
+                    or '1113' in error_str or 'resource' in low and 'package' in low):
+                return jsonify({"success": False, "error": "AI 服务余额不足或配额已用完，请联系管理员充值后重试"}), 402
+            # API Key 无效 / 鉴权失败
+            if status_code == 401 or 'api key' in low or 'invalid key' in low or 'authentication' in low:
+                return jsonify({"success": False, "error": "API Key 无效或未配置，请联系管理员"}), 401
+            # 超时
+            if 'timeout' in low or 'timed out' in low or status_code == 504:
                 return jsonify({"success": False, "error": "请求超时，请稍后重试"}), 504
-            elif 'api key' in error_str or 'invalid key' in error_str or 'authentication' in error_str:
-                return jsonify({"success": False, "error": "API Key 无效或未配置，请联系管理员"}), 500
-            elif 'rate limit' in error_str or 'quota' in error_str:
-                return jsonify({"success": False, "error": "API 请求配额不足，请稍后重试"}), 429
-            else:
-                return jsonify({"success": False, "error": f"生成失败：{str(e)[:100]}"}), 500
+            # 限流（非余额类）
+            if status_code == 429 or 'rate limit' in low:
+                return jsonify({"success": False, "error": "请求过于频繁，请稍后重试"}), 429
+            # 连接错误
+            if 'connection' in low or 'network' in low:
+                return jsonify({"success": False, "error": "网络连接异常，请检查网络后重试"}), 502
+            return jsonify({"success": False, "error": "AI 请求失败，请稍后重试"}), 500
 
     @app.route("/api/exam/export/docx", methods=["POST"])
     def api_exam_export_docx():

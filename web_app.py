@@ -110,32 +110,12 @@ ALLOWED_UPLOAD_EXT = {'.md', '.txt', '.docx', '.xlsx', '.csv', '.pdf'}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
 MAX_TEXT_CHARS = 30000  # 单文件最多送3万字符给AI
 
-ADMIN_CREDENTIALS = {}
-ADMIN_TOKEN_VALUE = str(uuid.uuid4())
-
 import hmac
 import secrets
 
-def _get_password_salt() -> bytes:
-    salt = os.environ.get('PASSWORD_SALT')
-    if not salt:
-        print("[警告] 未设置 PASSWORD_SALT 环境变量，使用随机盐值（重启后旧密码将失效）")
-        return secrets.token_bytes(32)
-    return salt.encode('utf-8')
-
-_PASSWORD_SALT = _get_password_salt()
-
-def _hash_password(pwd: str) -> str:
-    return hashlib.pbkdf2_hmac('sha256', pwd.encode('utf-8'), _PASSWORD_SALT, 100000).hex()
-
-def _verify_admin_password(username: str, password: str) -> bool:
-    if username not in ADMIN_CREDENTIALS:
-        return False
-    stored_hash = ADMIN_CREDENTIALS[username]
-    return hmac.compare_digest(_hash_password(password), stored_hash)
-
-def _set_admin_password(username: str, password: str):
-    ADMIN_CREDENTIALS[username] = _hash_password(password)
+# 管理员账号与会话已迁移到数据库（database.admin_users / admin_sessions 表），
+# 不再使用进程内存字典 ADMIN_CREDENTIALS 和进程级常量 ADMIN_TOKEN_VALUE。
+# 详见 database.py 中的 create_admin_user / verify_admin_password / create_admin_session 等函数。
 
 _CSRF_TOKENS = {}
 _CSRF_LOCK = threading.Lock()
@@ -146,6 +126,8 @@ _CSRF_EXEMPT = {
     '/api/lesson_plan/template_upload', '/api/lesson_plan/template_fill', '/api/lesson_plan/template_confirm', '/api/lesson_plan/template_generate',
     '/api/upload', '/api/download', '/api/avatar',
     '/api/profile/avatar', '/api/profile/username',
+    '/logout',
+    '/admin/login', '/admin/logout',
     '/admin/api/admin/change_password'
 }
 
@@ -170,6 +152,42 @@ def _validate_csrf_token(token, user_id):
         del _CSRF_TOKENS[token]
         return True
 
+def _format_ai_error(e):
+    """识别常见 AI API 异常，返回对用户友好的错误提示。
+
+    覆盖：余额不足/配额超限、API Key 无效、超时、限流、连接错误等。
+    不向客户端暴露原始异常细节（避免泄露 key/路径），但保留可读的归类提示。
+    """
+    # openai SDK 异常通常带 status_code 属性
+    status_code = getattr(e, 'status_code', None)
+    raw = str(e) or ''
+    low = raw.lower()
+
+    # 余额不足（智谱 code 1113 / 通用 quota / insufficient balance）
+    if ('余额不足' in raw or 'insufficient' in low or 'quota' in low
+            or '1113' in raw or 'resource' in low and 'package' in low):
+        return 'AI 服务余额不足或配额已用完，请联系管理员充值后重试'
+
+    # API Key 无效 / 鉴权失败
+    if status_code == 401 or 'api key' in low or 'invalid key' in low \
+            or 'authentication' in low or 'unauthorized' in low:
+        return 'API Key 无效或未配置，请联系管理员'
+
+    # 超时
+    if 'timeout' in low or 'timed out' in low or status_code == 504 \
+            or 'APITimeoutError' in type(e).__name__:
+        return 'AI 请求超时，请稍后重试'
+
+    # 限流（非余额类）
+    if status_code == 429 or 'rate limit' in low:
+        return '请求过于频繁，请稍后重试'
+
+    # 连接错误
+    if 'connection' in low or 'conn' in low or 'network' in low:
+        return '网络连接异常，请检查网络后重试'
+
+    return 'AI 请求失败，请稍后重试'
+
 def _check_csrf():
     if request.path in _CSRF_EXEMPT:
         return True
@@ -192,21 +210,28 @@ def csrf_protect():
 
 _env_admin_user = os.environ.get('ADMIN_USERNAME', 'LSW')
 _env_admin_pass = os.environ.get('ADMIN_PASSWORD', 'LSWYYDS')
-# 启动时读取持久化的管理员用户名（若个人中心修改过则覆盖环境变量默认值）
+# 启动时确保至少有一个超管存在：若 admin_users 表为空则用环境变量创建初始超管。
+# 注意：登录账号 _env_admin_user 仅用于首次初始化，运行期不再以此覆盖任何状态。
 try:
-    _stored_admin_username = database.get_local_admin_username('admin')
-    if _stored_admin_username:
-        _env_admin_user = _stored_admin_username
-except Exception as _e:
-    print(f"[startup] 读取持久化管理员用户名失败，使用默认值: {_e}")
-if not os.environ.get('ADMIN_PASSWORD'):
-    print("=" * 60)
-    print(f"使用默认管理员账号：")
-    print(f"用户名：{_env_admin_user}")
-    print(f"密码：{_env_admin_pass}")
-    print("如需修改密码，请设置环境变量 ADMIN_PASSWORD")
-    print("=" * 60)
-_set_admin_password(_env_admin_user, _env_admin_pass)
+    _init_super_result = database.init_default_super_admin(_env_admin_user, _env_admin_pass)
+    if _init_super_result.get("created"):
+        print("=" * 60)
+        print("已创建初始超级管理员账号：")
+        print(f"登录账号：{_init_super_result['admin']['username']}")
+        print("请尽快登录后台修改密码，并删除或修改默认密码。")
+        print("=" * 60)
+    elif not _init_super_result.get("message", "").startswith("已存在超管"):
+        print(f"[startup] 超管初始化: {_init_super_result.get('message')}")
+    if not os.environ.get('ADMIN_PASSWORD'):
+        print("=" * 60)
+        print(f"环境变量默认管理员账号（仅首次启动用于初始化）：")
+        print(f"用户名：{_env_admin_user}")
+        print(f"密码：{_env_admin_pass}")
+        print("如需更换默认账号，请设置环境变量 ADMIN_USERNAME / ADMIN_PASSWORD 后重启。")
+        print("运行期账号管理请在后台 /admin 的管理员账号管理界面操作。")
+        print("=" * 60)
+except Exception as _init_err:
+    print(f"[startup] 初始化超管失败: {_init_err}")
 
 TEMPLATE_CACHE = {}
 TEMPLATE_CACHE_TTL = 30 * 60  # 30分钟
@@ -655,21 +680,23 @@ def _session_key(user_id, session_id):
     return f"{user_id}:{session_id}"
 
 def get_current_user():
-    admin_token = request.cookies.get('admin_token')
-    if admin_token and admin_token == ADMIN_TOKEN_VALUE:
-        admin_user = request.cookies.get('admin_user', 'LSW')
-        avatar_url = database.get_local_avatar('admin')
-        # 优先使用数据库中持久化的用户名（支持个人中心修改并跨重启保留）
-        stored_username = database.get_local_admin_username('admin')
-        if stored_username:
-            admin_user = stored_username
-        return {
-            'id': 'admin',
-            'username': admin_user,
-            'email': 'admin@example.com',
-            'is_admin': True,
-            'avatar_url': avatar_url
-        }
+    # 管理员：从服务端 admin_sessions 表反查会话，cookie 仅携带 token
+    admin_session_token = request.cookies.get('admin_session')
+    if admin_session_token:
+        session = database.get_admin_session(admin_session_token)
+        if session and session.get('is_active'):
+            admin = database.get_admin_by_id(session['admin_id'])
+            if admin and admin['is_active']:
+                display_name = admin['display_name'] or admin['username']
+                return {
+                    'id': admin['id'],
+                    'username': display_name,
+                    'account': admin['username'],
+                    'email': 'admin@example.com',
+                    'is_admin': True,
+                    'is_super': admin['is_super'],
+                    'avatar_url': admin['avatar_url']
+                }
 
     token = request.cookies.get('session_token')
     if token:
@@ -1432,20 +1459,16 @@ def _clear_login_failures(ip: str, username: str):
         _login_attempts.pop(ip_key, None)
         _login_attempts.pop(user_key, None)
 
-def _set_auth_cookies(response, session_token, is_admin=False, admin_username=None):
-    max_age = 86400 * 7
+def _set_admin_auth_cookies(response, admin_session_token):
+    """下发管理员会话 cookie。仅携带服务端会话 token，不再下发 admin_user 之类的身份信息。"""
     is_secure = os.environ.get('FLASK_ENV') == 'production'
-    response.set_cookie('session_token', session_token, httponly=True, secure=is_secure,
-                        samesite='Lax', max_age=max_age)
-    if is_admin and admin_username:
-        response.set_cookie('admin_token', ADMIN_TOKEN_VALUE, httponly=True, secure=is_secure,
-                            samesite='Lax', max_age=86400)
-        response.set_cookie('admin_user', admin_username, httponly=True, secure=is_secure,
-                            samesite='Lax', max_age=86400)
+    response.set_cookie('admin_session', admin_session_token, httponly=True, secure=is_secure,
+                        samesite='Lax', max_age=database.ADMIN_SESSION_TTL)
 
 def _clear_auth_cookies(response):
-    for cookie_name in ['session_token', 'admin_token', 'admin_user']:
-        response.set_cookie(cookie_name, '', expires=0, samesite='Lax')
+    # 兼容旧 cookie（admin_token/admin_user）一并清除，确保旧会话失效
+    for cookie_name in ['session_token', 'admin_session', 'admin_token', 'admin_user']:
+        response.delete_cookie(cookie_name, samesite='Lax')
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -1466,12 +1489,30 @@ def login():
         if not _check_login_rate_limit(ip, username):
             return jsonify({"error": "登录尝试过于频繁，请5分钟后再试"}), 429
 
-        if _verify_admin_password(username, password):
+        # 管理员：通过数据库 admin_users 表验证，登录成功创建服务端会话
+        admin_result = database.verify_admin_password(username, password)
+        if admin_result.get("success"):
+            admin = admin_result["admin"]
             _clear_login_failures(ip, username)
-            access_token = database.generate_session_token()
-            response = jsonify({"status": "success", "username": username, "is_admin": True})
-            _set_auth_cookies(response, access_token, is_admin=True, admin_username=username)
+            session_token = database.create_admin_session(
+                admin["id"], ip_address=ip,
+                user_agent=request.headers.get('User-Agent', '')[:200]
+            )
+            if not session_token:
+                return jsonify({"error": "登录失败，会话创建异常"}), 500
+            database.record_login_attempt(ip, username, success=True)
+            database.log_admin_action(admin["username"], "login",
+                                     details=f"管理员登录（前台入口）display={admin['display_name']}",
+                                     ip_address=ip)
+            response = jsonify({"status": "success", "username": admin["display_name"], "is_admin": True})
+            _set_admin_auth_cookies(response, session_token)
             return response
+
+        # 管理员账号被识别但验证失败（密码错/被禁用），直接走失败流程
+        if admin_result.get("reason") in ("wrong_password", "inactive", "corrupt"):
+            _record_login_failure(ip, username)
+            database.record_login_attempt(ip, username, success=False)
+            return jsonify({"error": admin_result.get("error", "用户名或密码错误")}), 401
 
         login_email = username
         if '@' not in username:
@@ -1491,7 +1532,10 @@ def login():
             access_token = user.get('access_token') or database.generate_session_token()
             csrf_token = _generate_csrf_token(user['id'])
             response = jsonify({"status": "success", "username": user['username'], "is_admin": False, "csrf_token": csrf_token})
-            _set_auth_cookies(response, access_token, is_admin=False)
+            # 普通用户：下发 session_token cookie
+            is_secure = os.environ.get('FLASK_ENV') == 'production'
+            response.set_cookie('session_token', access_token, httponly=True, secure=is_secure,
+                                samesite='Lax', max_age=86400*7)
             return response
         else:
             _record_login_failure(ip, username)
@@ -1535,12 +1579,24 @@ def register():
     
     return render_template("register.html")
 
-@app.route("/logout", methods=["POST"])
+@app.route("/logout", methods=["GET", "POST"])
 def logout():
-    token = request.cookies.get('session_token')
-    if token:
-        database.clear_session_token(token)
-    response = make_response(jsonify({"status": "success"}))
+    user_token = request.cookies.get('session_token')
+    if user_token:
+        database.clear_session_token(user_token)
+        try:
+            supabase_client.sign_out_by_token(user_token)
+        except Exception:
+            pass
+    
+    admin_token = request.cookies.get('admin_session')
+    if admin_token:
+        database.delete_admin_session(admin_token)
+    
+    if request.method == 'GET':
+        response = make_response(redirect(url_for('login')))
+    else:
+        response = make_response(jsonify({"status": "success"}))
     _clear_auth_cookies(response)
     return response
 
@@ -1576,7 +1632,7 @@ def get_profile():
         return jsonify({"error": "请先登录"}), 401
     
     if user.get('is_admin'):
-        avatar_url = database.get_local_avatar(user['id'])
+        avatar_url = database.get_admin_avatar(user['id'])
         return jsonify({
             "success": True,
             "user": {
@@ -1602,29 +1658,24 @@ def update_username():
     if not data:
         return jsonify({"error": "无效的请求格式"}), 400
 
-    new_username = data.get("username")
+    new_username = (data.get("username") or "").strip()
+    # 校验：与注册时保持一致 —— 长度 2-20，仅允许字母/数字/下划线/中文
     if not new_username or len(new_username) < 2:
         return jsonify({"error": "用户名至少2个字符"}), 400
+    if len(new_username) > 20:
+        return jsonify({"error": "用户名长度不超过20位"}), 400
+    if not re.match(r'^[a-zA-Z0-9_\u4e00-\u9fa5]+$', new_username):
+        return jsonify({"error": "用户名只允许字母、数字、下划线和中文"}), 400
 
+    # 显示名与当前一致则直接返回成功
     if new_username == user.get('username'):
         return jsonify({"success": True, "username": new_username})
 
     if user.get('is_admin'):
-        # 管理员修改用户名：更新内存凭证、持久化到数据库、刷新 cookie
-        old_username = user['username']
-        if new_username in ADMIN_CREDENTIALS:
-            return jsonify({"success": False, "error": "该用户名已被使用"}), 409
-
-        # 迁移密码哈希到新用户名
-        ADMIN_CREDENTIALS[new_username] = ADMIN_CREDENTIALS.pop(old_username, _hash_password(''))
-        # 持久化到 admin_profile 表（跨重启保留）
-        database.update_local_admin_username(user['id'], new_username)
-
-        response = jsonify({"success": True, "username": new_username})
-        is_secure = os.environ.get('FLASK_ENV') == 'production'
-        response.set_cookie('admin_user', new_username, httponly=True, secure=is_secure,
-                            samesite='Lax', max_age=86400)
-        return response
+        # 管理员：只改显示名，不改登录账号（admin_users.username 永远不变）
+        if not database.update_admin_display_name(user['id'], new_username):
+            return jsonify({"error": "保存失败"}), 500
+        return jsonify({"success": True, "username": new_username})
 
     exist_result = supabase_client.username_exists(new_username)
     if exist_result["success"]:
@@ -1723,19 +1774,53 @@ def upload_avatar():
     upload_dir = os.path.join(DATA_DIR, 'uploads', 'avatars')
     os.makedirs(upload_dir, exist_ok=True)
     filepath = os.path.join(upload_dir, filename)
-    
+
+    # 获取旧头像 URL，便于新头像写入成功后清理旧文件
+    old_avatar_url = None
+    if user.get('is_admin'):
+        old_avatar_url = database.get_admin_avatar(user['id'])
+    else:
+        try:
+            user_lookup = supabase_client.get_user_by_id(user['id'])
+            if user_lookup.get("success"):
+                old_avatar_url = user_lookup["user"].get("avatar_url")
+        except Exception:
+            pass
+
     with open(filepath, "wb") as f:
         f.write(file_data)
-    
+
     avatar_url = f"/api/avatar/{filename}"
 
+    def _cleanup_old_avatar_file(old_url):
+        """从旧的 /api/avatar/<filename> URL 提取文件名并安全删除"""
+        if not old_url or '/api/avatar/' not in old_url:
+            return
+        old_filename = old_url.rsplit('/', 1)[-1]
+        if not _is_safe_filename(old_filename):
+            return
+        old_filepath = os.path.realpath(os.path.join(upload_dir, old_filename))
+        try:
+            if os.path.isfile(old_filepath) and old_filepath.startswith(os.path.realpath(upload_dir) + os.sep):
+                os.remove(old_filepath)
+        except OSError:
+            pass
+
     if user.get('is_admin'):
-        database.update_local_avatar(user['id'], avatar_url)
+        if not database.update_admin_avatar(user['id'], avatar_url):
+            # 数据库写入失败，删除已落盘的文件避免悬空
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
+            return jsonify({"error": "保存失败"}), 500
+        _cleanup_old_avatar_file(old_avatar_url)
         return jsonify({"success": True, "avatar_url": avatar_url})
 
     result = supabase_client.update_user_avatar(user['id'], avatar_url)
 
     if result["success"]:
+        _cleanup_old_avatar_file(old_avatar_url)
         return jsonify({"success": True, "avatar_url": avatar_url})
     else:
         try:
@@ -1776,8 +1861,7 @@ def get_csrf_token():
 @app.route("/api/auth/get-email", methods=["POST"])
 def get_email_by_username():
     # 修复 S3：限制仅管理员可调用，避免通过该接口枚举用户邮箱
-    admin_token = request.cookies.get('admin_token')
-    if not admin_token or admin_token != ADMIN_TOKEN_VALUE:
+    if not is_admin_logged_in():
         return jsonify({"error": "仅管理员可执行此操作"}), 403
 
     user = get_current_user()
@@ -2125,8 +2209,8 @@ def chat_stream():
                 ai_queue.put(("done", None))
                 ai_done = True
             except Exception as e:
-                print(f"[Chat] Stream request failed: {e}")
-                ai_error = "请求失败，请稍后重试"
+                print(f"[Chat] Stream request failed: {type(e).__name__}: {e}")
+                ai_error = _format_ai_error(e)
                 ai_queue.put(("error", ai_error))
                 ai_done = True
 
@@ -3065,7 +3149,8 @@ def api_lesson_plan_template_generate():
             max_tokens=4096,
         )
     except Exception as e:
-        return jsonify({"error": "AI请求失败"}), 500
+        print(f"[lesson_plan] AI 请求失败: {type(e).__name__}: {e}")
+        return jsonify({"error": _format_ai_error(e)}), 500
 
     reply = response.choices[0].message.content
 
@@ -3626,14 +3711,46 @@ def get_client_ip():
 
 
 def is_admin_logged_in():
-    admin_token = request.cookies.get('admin_token')
-    return admin_token and admin_token == ADMIN_TOKEN_VALUE
+    """管理员是否已登录：通过服务端 admin_sessions 表反查会话有效性"""
+    token = request.cookies.get('admin_session')
+    if not token:
+        return False
+    session = database.get_admin_session(token)
+    return bool(session and session.get('is_active'))
 
 
 def admin_identity():
-    """从 cookie 或临时标记获取当前管理员用户名"""
-    # TODO: 安全风险 - 应从服务端会话反查，当前直接信任客户端 cookie 可被伪造（已知限制，需数据库改动后修复）
-    return request.cookies.get('admin_user') or 'unknown'
+    """从服务端会话反查当前管理员登录账号。
+    取代旧实现直接信任客户端 admin_user cookie 的做法（已知伪造风险）。
+    """
+    token = request.cookies.get('admin_session')
+    if not token:
+        return 'unknown'
+    session = database.get_admin_session(token)
+    if not session:
+        return 'unknown'
+    return session.get('username') or 'unknown'
+
+
+def _current_admin_session():
+    """获取当前管理员会话详情（用于路由中读取 admin_id/is_super 等字段）"""
+    token = request.cookies.get('admin_session')
+    if not token:
+        return None
+    return database.get_admin_session(token)
+
+
+def super_admin_required(f):
+    """仅超管可访问：用于管理员账号管理接口"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        session = _current_admin_session()
+        if not session:
+            return jsonify({"error": "未授权"}), 401
+        if not session.get('is_super'):
+            return jsonify({"error": "仅超级管理员可执行此操作"}), 403
+        return f(*args, **kwargs)
+    return decorated
 
 
 def admin_required(f):
@@ -3658,42 +3775,65 @@ def admin_login():
     if not data:
         return jsonify({"error": "无效的请求格式"}), 400
 
-    username = data.get("username")
-    password = data.get("password")
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
     ip = get_client_ip()
 
-    if not _check_login_rate_limit(ip, username or ''):
+    if not username or not password:
+        return jsonify({"error": "用户名和密码不能为空"}), 400
+
+    if not _check_login_rate_limit(ip, username):
         return jsonify({"error": "登录尝试过多，请15分钟后再试"}), 429
 
-    if _verify_admin_password(username, password):
-        _clear_login_failures(ip, username or '')
+    result = database.verify_admin_password(username, password)
+    if result.get("success"):
+        admin = result["admin"]
+        _clear_login_failures(ip, username)
+        session_token = database.create_admin_session(
+            admin["id"], ip_address=ip,
+            user_agent=request.headers.get('User-Agent', '')[:200]
+        )
+        if not session_token:
+            return jsonify({"error": "登录失败，会话创建异常"}), 500
         database.record_login_attempt(ip, username, success=True)
-        response = jsonify({"status": "success"})
-        is_secure = os.environ.get('FLASK_ENV') == 'production'
-        response.set_cookie('admin_token', ADMIN_TOKEN_VALUE, httponly=True, secure=is_secure,
-                            samesite='Lax', max_age=86400)
-        response.set_cookie('admin_user', username, httponly=True, secure=is_secure,
-                            samesite='Lax', max_age=86400)
-        database.log_admin_action(username, "login", details="管理员登录", ip_address=ip)
+        database.log_admin_action(admin["username"], "login",
+                                   details=f"管理员登录 display={admin['display_name']}",
+                                   ip_address=ip)
+        # 顺便清理过期会话（低频清理，避免无界增长）
+        try:
+            database.cleanup_expired_admin_sessions()
+        except Exception:
+            pass
+        response = jsonify({"status": "success", "username": admin["display_name"]})
+        _set_admin_auth_cookies(response, session_token)
         return response
     else:
-        _record_login_failure(ip, username or '')
-        database.record_login_attempt(ip, username or '', success=False)
-        return jsonify({"error": "用户名或密码错误"}), 401
+        _record_login_failure(ip, username)
+        database.record_login_attempt(ip, username, success=False)
+        # 不暴露具体原因（账号不存在 vs 密码错误），统一返回"用户名或密码错误"
+        safe_error = "用户名或密码错误" if result.get("reason") in ("not_found", "wrong_password", "corrupt") else result.get("error", "登录失败")
+        return jsonify({"error": safe_error}), 401
 
 
 @app.route("/admin/dashboard")
 def admin_dashboard():
     if not is_admin_logged_in():
         return redirect(url_for('admin_login_page'))
-    return render_template("admin_users.html")
+    user = get_current_user()
+    return render_template("admin_users.html", user=user)
 
 
-@app.route("/admin/logout", methods=["POST"])
+@app.route("/admin/logout", methods=["GET", "POST"])
 def admin_logout():
     admin = admin_identity()
+    token = request.cookies.get('admin_session')
+    if token:
+        database.delete_admin_session(token)
     database.log_admin_action(admin, "logout", details="管理员退出登录", ip_address=get_client_ip())
-    response = make_response(jsonify({"status": "success"}))
+    if request.method == 'GET':
+        response = make_response(redirect('/admin/login'))
+    else:
+        response = make_response(jsonify({"status": "success"}))
     _clear_auth_cookies(response)
     return response
 
@@ -4154,17 +4294,183 @@ def admin_change_password():
     if len(new_password) < 6:
         return jsonify({"success": False, "error": "新密码长度至少为6位"}), 400
 
-    admin_name = admin_identity()
-    if admin_name not in ADMIN_CREDENTIALS or not _verify_admin_password(admin_name, old_password):
+    # 通过当前会话拿到 admin_id，再验证原密码（避免信任客户端 cookie）
+    session = _current_admin_session()
+    if not session:
+        return jsonify({"success": False, "error": "会话已失效，请重新登录"}), 401
+    admin = database.get_admin_by_id(session['admin_id'])
+    if not admin:
+        return jsonify({"success": False, "error": "账号不存在"}), 404
+
+    verify = database.verify_admin_password(admin['username'], old_password)
+    if not verify.get("success"):
         return jsonify({"success": False, "error": "原密码错误"}), 401
 
-    _set_admin_password(admin_name, new_password)
+    update_result = database.update_admin_password(admin['id'], new_password)
+    if not update_result.get("success"):
+        return jsonify({"success": False, "error": update_result.get("error", "更新失败")}), 500
+
+    # update_admin_password 已吊销所有会话，前端需重新登录
     database.log_admin_action(
-        admin_name, "change_admin_password", details="修改管理员密码",
+        admin['username'], "change_admin_password", details="修改管理员密码",
         ip_address=get_client_ip()
     )
+    response = jsonify({"success": True, "message": "密码修改成功，请重新登录"})
+    _clear_auth_cookies(response)
+    return response
 
-    return jsonify({"success": True, "message": "密码修改成功，请重新登录"})
+
+# ===== 管理员账号管理（仅超管可操作）=====
+
+@app.route("/admin/api/admin/users", methods=["GET"])
+@super_admin_required
+def admin_list_admin_users():
+    """列出所有管理员账号"""
+    admins = database.list_admin_users()
+    # 附加在线会话数（最近 5 分钟内活跃）
+    return jsonify({"success": True, "admins": admins})
+
+
+@app.route("/admin/api/admin/users", methods=["POST"])
+@super_admin_required
+def admin_create_admin_user():
+    """创建管理员账号（超管或普通管理员）"""
+    data = safe_get_json()
+    if not data:
+        return jsonify({"success": False, "error": "无效的请求格式"}), 400
+
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+    display_name = (data.get("display_name") or "").strip() or None
+    is_super = bool(data.get("is_super", False))
+
+    if not username or not password:
+        return jsonify({"success": False, "error": "用户名和密码不能为空"}), 400
+    if len(password) < 6:
+        return jsonify({"success": False, "error": "密码长度至少6位"}), 400
+
+    result = database.create_admin_user(username, password, display_name=display_name, is_super=is_super)
+    if result.get("success"):
+        database.log_admin_action(
+            admin_identity(), "create_admin_user", target_user_id=result["admin"]["id"],
+            details=f"创建管理员 {username} (super={is_super})", ip_address=get_client_ip()
+        )
+        return jsonify({"success": True, "admin": result["admin"]})
+    return jsonify({"success": False, "error": result.get("error", "创建失败")}), 409
+
+
+@app.route("/admin/api/admin/users/<admin_id>", methods=["DELETE"])
+@super_admin_required
+def admin_delete_admin_user(admin_id):
+    """删除管理员账号"""
+    session = _current_admin_session()
+    if session and session['admin_id'] == admin_id:
+        return jsonify({"success": False, "error": "不能删除当前登录的管理员账号"}), 400
+
+    target = database.get_admin_by_id(admin_id)
+    if not target:
+        return jsonify({"success": False, "error": "管理员不存在"}), 404
+
+    result = database.delete_admin_user(admin_id)
+    if result.get("success"):
+        database.log_admin_action(
+            admin_identity(), "delete_admin_user", target_user_id=admin_id,
+            details=f"删除管理员 {target['username']}", ip_address=get_client_ip()
+        )
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": result.get("error", "删除失败")}), 400
+
+
+@app.route("/admin/api/admin/users/<admin_id>", methods=["PUT"])
+@super_admin_required
+def admin_update_admin_user(admin_id):
+    """修改管理员属性：display_name / is_super / is_active"""
+    data = safe_get_json()
+    if not data:
+        return jsonify({"success": False, "error": "无效的请求格式"}), 400
+
+    target = database.get_admin_by_id(admin_id)
+    if not target:
+        return jsonify({"success": False, "error": "管理员不存在"}), 404
+
+    changes = []
+
+    # 修改显示名
+    if 'display_name' in data:
+        new_name = (data['display_name'] or '').strip()
+        if not new_name or len(new_name) < 2 or len(new_name) > 20:
+            return jsonify({"success": False, "error": "显示名长度需在2-20位之间"}), 400
+        if not re.match(r'^[a-zA-Z0-9_\u4e00-\u9fa5]+$', new_name):
+            return jsonify({"success": False, "error": "显示名只允许字母、数字、下划线和中文"}), 400
+        if database.update_admin_display_name(admin_id, new_name):
+            changes.append(f"display_name={new_name}")
+
+    # 修改超管身份
+    if 'is_super' in data:
+        new_super = bool(data['is_super'])
+        # 防止自我降级导致无超管
+        session = _current_admin_session()
+        if session and session['admin_id'] == admin_id and not new_super:
+            return jsonify({"success": False, "error": "不能取消自己的超级管理员身份"}), 400
+        # 直接更新 is_super 字段
+        import sqlite3 as _sqlite3_for_admin
+        conn = _sqlite3_for_admin.connect(database.DB_PATH)
+        try:
+            cur = conn.cursor()
+            cur.execute('UPDATE admin_users SET is_super = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                        (1 if new_super else 0, admin_id))
+            conn.commit()
+            changes.append(f"is_super={new_super}")
+        finally:
+            conn.close()
+
+    # 启用/禁用
+    if 'is_active' in data:
+        new_active = bool(data['is_active'])
+        session = _current_admin_session()
+        if session and session['admin_id'] == admin_id and not new_active:
+            return jsonify({"success": False, "error": "不能禁用当前登录的管理员账号"}), 400
+        result = database.set_admin_active(admin_id, new_active)
+        if not result.get("success"):
+            return jsonify({"success": False, "error": result.get("error", "操作失败")}), 500
+        changes.append(f"is_active={new_active}")
+
+    if changes:
+        database.log_admin_action(
+            admin_identity(), "update_admin_user", target_user_id=admin_id,
+            details=f"修改管理员 {target['username']}：{', '.join(changes)}", ip_address=get_client_ip()
+        )
+
+    return jsonify({"success": True, "admin": database.get_admin_by_id(admin_id)})
+
+
+@app.route("/admin/api/admin/users/<admin_id>/reset_password", methods=["POST"])
+@super_admin_required
+def admin_reset_admin_password(admin_id):
+    """超管重置其他管理员密码（不需要原密码）"""
+    data = safe_get_json() or {}
+    new_password = data.get("new_password") or ""
+
+    if not new_password:
+        # 未提供则生成随机密码
+        new_password = generate_random_password(12)
+
+    if len(new_password) < 6:
+        return jsonify({"success": False, "error": "密码长度至少6位"}), 400
+
+    target = database.get_admin_by_id(admin_id)
+    if not target:
+        return jsonify({"success": False, "error": "管理员不存在"}), 404
+
+    result = database.update_admin_password(admin_id, new_password)
+    if result.get("success"):
+        database.log_admin_action(
+            admin_identity(), "reset_admin_password", target_user_id=admin_id,
+            details=f"重置管理员密码：{target['username']}", ip_address=get_client_ip()
+        )
+        # 返回明文密码（仅一次），便于超管转交
+        return jsonify({"success": True, "password": new_password})
+    return jsonify({"success": False, "error": result.get("error", "重置失败")}), 500
 
 
 @app.route("/admin/api/system_info", methods=["GET"])
@@ -4305,7 +4611,7 @@ def admin_get_system_info():
             "uptime": uptime,
             "current_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
             "app_version": "4.0",
-            "admin_users": list(ADMIN_CREDENTIALS.keys())
+            "admin_users": [a['username'] for a in database.list_admin_users()]
         }
     })
 
@@ -4363,7 +4669,7 @@ def admin_enable_user(user_id):
 if __name__ == "__main__":
     print("""
 ============================================
-       BeiKe Assistant (Web) - 登录版 5.0
+       BeiKe Assistant (Web) - 登录版 5.3
        http://localhost:5000
        Ctrl+C to exit
 ============================================

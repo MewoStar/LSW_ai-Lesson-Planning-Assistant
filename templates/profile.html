@@ -502,7 +502,7 @@
         <div class="top-bar">
             <h1><span class="logo-icon"><svg class="ico ico-md"><use href="#i-user"/></svg></span> 个人中心</h1>
             <div class="user-badge">
-                <span>{{ user.username }}</span>
+                <span id="topbar-username">{{ user.username }}</span>
             </div>
         </div>
 
@@ -576,7 +576,7 @@
 
                 <div class="form-section">
                     <h3><svg class="ico ico-sm"><use href="#i-shield"/></svg> 账号安全</h3>
-                    <button class="btn-logout" id="btn-logout"><svg class="ico ico-sm"><use href="#i-logout"/></svg> 退出登录</button>
+                    <a class="btn-logout" href="/logout"><svg class="ico ico-sm"><use href="#i-logout"/></svg> 退出登录</a>
                 </div>
             </div>
         </div>
@@ -589,6 +589,7 @@
         const avatarPlaceholder = document.getElementById('avatar-placeholder');
         const avatarInput = document.getElementById('avatar-input');
         const currentUsername = document.getElementById('current-username');
+        const topbarUsername = document.getElementById('topbar-username');
         const currentEmail = document.getElementById('current-email');
         const btnSaveProfile = document.getElementById('btn-save-profile');
         const passwordInput = document.getElementById('password-input');
@@ -704,7 +705,7 @@
 
         async function saveProfile() {
             const hasChanges = editedUsername !== originalUsername || pendingAvatarFile;
-            
+
             if (!hasChanges) {
                 hideSaveButton();
                 return;
@@ -714,7 +715,25 @@
             btnSaveProfile.innerHTML = '<span class="loading-spinner"></span>保存中...';
 
             try {
-                let avatarUrl = null;
+                // 顺序保证：先改用户名，成功后再上传头像。
+                // 任一步骤失败则整体中止，避免头像已写盘但用户名未更新的不一致状态。
+                if (editedUsername !== originalUsername) {
+                    const usernameResponse = await fetch('/api/profile/username', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ username: editedUsername })
+                    });
+
+                    const usernameData = await usernameResponse.json();
+                    if (!usernameData.success) {
+                        throw new Error(usernameData.error || '用户名修改失败');
+                    }
+                    // 同步顶栏徽章
+                    if (topbarUsername) {
+                        topbarUsername.textContent = editedUsername;
+                    }
+                }
 
                 if (pendingAvatarFile) {
                     const formData = new FormData();
@@ -728,23 +747,12 @@
 
                     const avatarData = await avatarResponse.json();
                     if (avatarData.success) {
-                        avatarUrl = avatarData.avatar_url;
+                        // 使用后端返回的稳定 URL（带版本号参数避免缓存）
+                        const finalUrl = avatarData.avatar_url;
+                        avatarPlaceholder.style.display = 'none';
+                        avatarDisplay.innerHTML = `<img src="${finalUrl}" alt="头像">`;
                     } else {
                         throw new Error(avatarData.error || '头像上传失败');
-                    }
-                }
-
-                if (editedUsername !== originalUsername) {
-                    const usernameResponse = await fetch('/api/profile/username', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'same-origin',
-                        body: JSON.stringify({ username: editedUsername })
-                    });
-
-                    const usernameData = await usernameResponse.json();
-                    if (!usernameData.success) {
-                        throw new Error(usernameData.error || '用户名修改失败');
                     }
                 }
 
@@ -820,12 +828,6 @@
         btnSaveProfile.addEventListener('click', saveProfile);
         avatarInput.addEventListener('change', handleAvatarChange);
         btnUpdatePassword.addEventListener('click', updatePassword);
-        btnLogout.addEventListener('click', () => {
-            localStorage.removeItem('bk_login_mode');
-            localStorage.removeItem('bk_login_account');
-            localStorage.removeItem('bk_login_password');
-            window.location.href = '/logout';
-        });
 
         document.addEventListener('DOMContentLoaded', loadProfile);
     </script>

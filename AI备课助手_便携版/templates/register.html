@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>备课助手 - 注册</title>
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { overflow-x: hidden; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Microsoft YaHei", sans-serif;
+            background-color: #FAF7F2;
+            min-height: 100vh;
+            padding: 40px 20px;
+            position: relative;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('/static/city.png');
+            background-size: 110% auto;
+            background-repeat: no-repeat;
+            background-position: center 85%;
+            opacity: 0.95;
+            z-index: 0;
+            pointer-events: none;
+        }
+        .paper-plane-1 {
+            position: fixed;
+            top: 8%;
+            left: 5%;
+            width: 120px;
+            height: 80px;
+            opacity: 0.19;
+            z-index: 0;
+            transform: rotate(-15deg);
+            pointer-events: none;
+        }
+        .paper-plane-2 {
+            position: fixed;
+            top: 18%;
+            right: 8%;
+            width: 80px;
+            height: 55px;
+            opacity: 0.19;
+            z-index: 0;
+            transform: rotate(15deg);
+            pointer-events: none;
+        }
+        .bottom-layer-1 {
+            position: fixed;
+            bottom: 0;
+            left: -10%;
+            width: 120%;
+            height: 200px;
+            background: rgba(124, 58, 237, 0.12);
+            border-radius: 50% 50% 0 0 / 60% 60% 0 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+        .bottom-layer-2 {
+            position: fixed;
+            bottom: 0;
+            left: -5%;
+            width: 110%;
+            height: 160px;
+            background: rgba(167, 139, 250, 0.08);
+            border-radius: 50% 50% 0 0 / 50% 50% 0 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+        .bottom-layer-3 {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 120px;
+            background: rgba(192, 165, 252, 0.05);
+            border-radius: 50% 50% 0 0 / 40% 40% 0 0;
+            z-index: 0;
+            pointer-events: none;
+        }
+        .bottom-grid {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 400px;
+            background-image:
+                linear-gradient(rgba(124,58,237,0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(124,58,237,0.04) 1px, transparent 1px);
+            background-size: 40px 40px;
+            mask-image: linear-gradient(to top, black 20%, transparent 100%);
+            -webkit-mask-image: linear-gradient(to top, black 20%, transparent 100%);
+            z-index: 0;
+            pointer-events: none;
+        }
+        .register-wrapper {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: calc(100vh - 80px);
+        }
+        .register-container {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(8px);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            padding: 40px;
+            width: 100%;
+            max-width: 420px;
+        }
+        .logo-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 12px;
+            display: block;
+            color: #7c3aed;
+        }
+        .title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #1e1e2e;
+        }
+        .subtitle {
+            font-size: 14px;
+            color: #6c7086;
+            margin-top: 4px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e0e3e8;
+            border-radius: 12px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.2s;
+            background: #fafafa;
+        }
+        .form-group input:focus {
+            border-color: #7c3aed;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(124,58,237,0.1);
+        }
+        .form-group input::placeholder {
+            color: #9ca3af;
+        }
+        .form-group .hint {
+            font-size: 12px;
+            color: #9ca3af;
+            margin-top: 6px;
+        }
+        .btn-primary {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 10px;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(124,58,237,0.4);
+        }
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .link-section {
+            text-align: center;
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #e0e3e8;
+        }
+        .link-section a {
+            color: #7c3aed;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .link-section a:hover {
+            text-decoration: underline;
+        }
+        .error-message {
+            background: #fee2e2;
+            color: #dc2626;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 16px;
+            display: none;
+        }
+        .success-message {
+            background: #dcfce7;
+            color: #16a34a;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 16px;
+            display: none;
+        }
+        .loading {
+            display: inline-flex;
+            gap: 3px;
+        }
+        .loading span {
+            width: 4px;
+            height: 4px;
+            background: white;
+            border-radius: 50%;
+            animation: dot 1.4s infinite;
+        }
+        .loading span:nth-child(2) { animation-delay: 0.2s; }
+        .loading span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes dot { 0%,80%,100%{opacity:0.2;transform:scale(0.7)} 40%{opacity:1;transform:scale(1)} }
+    </style>
+</head>
+<body>
+    <svg class="paper-plane-1" viewBox="0 0 120 80" fill="none">
+        <path d="M5 40 L115 40 L85 10 L5 40" stroke="#808090" stroke-width="1" stroke-linejoin="round"/>
+        <path d="M85 10 L85 70 L5 40" stroke="#808090" stroke-width="1" stroke-linejoin="round"/>
+    </svg>
+    <svg class="paper-plane-2" viewBox="0 0 80 55" fill="none">
+        <path d="M75 27 L5 27 L30 5 L75 27" stroke="#808090" stroke-width="1" stroke-linejoin="round"/>
+        <path d="M30 5 L30 49 L75 27" stroke="#808090" stroke-width="1" stroke-linejoin="round"/>
+    </svg>
+    <div class="bottom-layer-1"></div>
+    <div class="bottom-layer-2"></div>
+    <div class="bottom-layer-3"></div>
+    <div class="bottom-grid"></div>
+    <div class="register-wrapper">
+        <div class="register-container">
+        <div class="logo-section">
+            <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            <div class="title">备课助手</div>
+            <div class="subtitle">AI 驱动的智能备课平台</div>
+        </div>
+        
+        <div class="error-message" id="error-message"></div>
+        <div class="success-message" id="success-message"></div>
+        
+        <form id="register-form">
+            <div class="form-group">
+                <label for="email">邮箱</label>
+                <input type="email" id="email" placeholder="请输入邮箱地址" required>
+                <div class="hint">用于登录账号和找回密码</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="username">用户名</label>
+                <input type="text" id="username" placeholder="请输入用户名" required>
+                <div class="hint">用户名将在平台内显示</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">密码</label>
+                <input type="password" id="password" placeholder="请输入密码" required>
+                <div class="hint">密码长度至少6位</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="confirm-password">确认密码</label>
+                <input type="password" id="confirm-password" placeholder="请再次输入密码" required>
+            </div>
+            
+            <button type="submit" class="btn-primary" id="submit-btn">
+                <span id="btn-text">注 册</span>
+                <span id="btn-loading" class="loading" style="display:none"><span></span><span></span><span></span></span>
+            </button>
+        </form>
+        
+        <div class="link-section">
+            <span>已有账号？</span>
+            <a href="/login">立即登录</a>
+        </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('register-form');
+        const email = document.getElementById('email');
+        const username = document.getElementById('username');
+        const password = document.getElementById('password');
+        const confirmPassword = document.getElementById('confirm-password');
+        const submitBtn = document.getElementById('submit-btn');
+        const btnText = document.getElementById('btn-text');
+        const btnLoading = document.getElementById('btn-loading');
+        const errorMsg = document.getElementById('error-message');
+        const successMsg = document.getElementById('success-message');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const mail = email.value.trim();
+            const user = username.value.trim();
+            const pass = password.value.trim();
+            const confirmPass = confirmPassword.value.trim();
+            
+            if (!mail || !user || !pass || !confirmPass) {
+                showError('请填写所有必填项');
+                return;
+            }
+            
+            if (pass.length < 6) {
+                showError('密码长度至少6位');
+                return;
+            }
+            
+            if (pass !== confirmPass) {
+                showError('两次输入的密码不一致');
+                return;
+            }
+            
+            submitBtn.disabled = true;
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline-flex';
+            hideError();
+            hideSuccess();
+            
+            try {
+                const response = await fetch('/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: mail,
+                        username: user,
+                        password: pass
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok && result.status === 'success') {
+                    showSuccess('注册成功！请查看邮箱完成验证，验证后即可登录');
+                    setTimeout(() => {
+                        window.location.href = '/login';
+                    }, 4000);
+                } else {
+                    showError(result.error || '注册失败');
+                }
+            } catch (error) {
+                showError('网络错误，请稍后重试');
+            } finally {
+                submitBtn.disabled = false;
+                btnText.style.display = 'inline';
+                btnLoading.style.display = 'none';
+            }
+        });
+
+        function showError(msg) {
+            errorMsg.textContent = msg;
+            errorMsg.style.display = 'block';
+        }
+        
+        function hideError() {
+            errorMsg.style.display = 'none';
+        }
+        
+        function showSuccess(msg) {
+            successMsg.textContent = msg;
+            successMsg.style.display = 'block';
+        }
+        
+        function hideSuccess() {
+            successMsg.style.display = 'none';
+        }
+    </script>
+</body>
+</html>

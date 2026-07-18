@@ -122,6 +122,16 @@ def sign_out():
     except Exception as e:
         return {"success": False, "error": _safe_error(e, "操作失败")}
 
+def sign_out_by_token(access_token: str):
+    supabase = get_supabase()
+    with _session_lock:
+        try:
+            supabase.auth.set_session(access_token)
+            supabase.auth.sign_out()
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": _safe_error(e, "操作失败")}
+
 def get_user(access_token: str):
     supabase = get_supabase()
     try:
