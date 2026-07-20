@@ -16,7 +16,7 @@
 ; ============================================
 
 #define MyAppName "AI 备课助手"
-#define MyAppVersion "5.3"
+#define MyAppVersion "5.4.4"
 #define MyAppPublisher "LSW"
 #define MyAppExeName "启动备课助手.bat"
 #define MyAppIcon "app.ico"
@@ -35,7 +35,7 @@ DefaultDirName={pf}\AI备课助手
 DefaultGroupName=AI 备课助手
 AllowNoIcons=yes
 OutputDir=.
-OutputBaseFilename=AI备课助手5.3_安装包
+OutputBaseFilename=AI备课助手5.4.4_安装包
 SetupIconFile={#MyAppIcon}
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -78,7 +78,6 @@ FinishedLabel={#MyAppName} 已成功安装到您的计算机。
 ClickFinish=点击"完成"退出安装程序。
 FinishedRestartLabel=要完成安装，需要重新启动计算机。%n%n要现在重新启动吗？
 FinishedRestartMessage=要完成安装，需要重新启动计算机。%n%n要现在重新启动吗？
-ShowReadmeCheck=查看使用说明
 ConfirmUninstall=您确定要完全移除 {#MyAppName} 及其所有组件吗？
 UninstallDataError=无法删除文件 "%1"。%n%n是否继续？
 OnlyAdminCanUninstall=此程序只能由管理员卸载。
@@ -137,8 +136,7 @@ Name: "{app}"; Permissions: users-modify
 ; 注意：\*.exe 只排除"根目录"的 exe（即安装包自身），不影响 .venv 下的 python.exe
 ; \*.zip 同理，只排除根目录的 zip 包
 Source: "*"; Excludes: "installer.iss,使用说明.txt,app.ico,version.txt,\*.exe,\*.zip"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; 单独确保使用说明、图标、版本文件包含
-Source: "使用说明.txt"; DestDir: "{app}"; Flags: ignoreversion
+; 单独确保图标、版本文件包含（使用说明不再打包）
 Source: "app.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "version.txt"; DestDir: "{app}"; Flags: ignoreversion
 
@@ -146,7 +144,6 @@ Source: "version.txt"; DestDir: "{app}"; Flags: ignoreversion
 ; 开始菜单 - pythonw.exe 静默启动,无黑窗口
 Name: "{group}\AI 备课助手"; Filename: "{app}\.venv\pythonw.exe"; Parameters: """{app}\launcher.py"""; IconFilename: "{app}\app.ico"; WorkingDir: "{app}"
 Name: "{group}\停止服务"; Filename: "{app}\停止服务.bat"; IconFilename: "{app}\app.ico"; Flags: runminimized
-Name: "{group}\使用说明"; Filename: "notepad.exe"; Parameters: """{app}\使用说明.txt"""; IconFilename: "{app}\app.ico"
 Name: "{group}\卸载 AI 备课助手"; Filename: "{uninstallexe}"; IconFilename: "{app}\app.ico"
 ; 桌面
 Name: "{commondesktop}\AI 备课助手"; Filename: "{app}\.venv\pythonw.exe"; Parameters: """{app}\launcher.py"""; IconFilename: "{app}\app.ico"; WorkingDir: "{app}"; Tasks: desktopicon
@@ -154,8 +151,6 @@ Name: "{commondesktop}\AI 备课助手"; Filename: "{app}\.venv\pythonw.exe"; Pa
 Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\AI 备课助手"; Filename: "{app}\.venv\pythonw.exe"; Parameters: """{app}\launcher.py"""; IconFilename: "{app}\app.ico"; WorkingDir: "{app}"; Tasks: quicklaunchicon
 
 [Run]
-; 交互式安装完成后打开使用说明（静默升级不弹 notepad）
-Filename: "notepad.exe"; Parameters: """{app}\使用说明.txt"""; Description: "查看使用说明"; Flags: nowait postinstall skipifsilent runasoriginaluser
 ; 静默升级完成后自动启动应用（用户从软件内触发升级时无感重启）
 Filename: "{app}\.venv\pythonw.exe"; Parameters: """{app}\launcher.py"""; WorkingDir: "{app}"; Flags: nowait skipifnotsilent runasoriginaluser
 

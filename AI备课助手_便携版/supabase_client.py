@@ -468,3 +468,304 @@ def admin_update_user_password(user_id: str, new_password: str):
         return {"success": False, "error": "更新失败"}
     except Exception as e:
         return {"success": False, "error": _safe_error(e, "密码更新失败")}
+
+
+def save_chat_session(access_token: str, session_id: str, title: str = '新对话'):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        user_id = user_result['user']['id']
+        supabase = get_supabase_admin() or get_supabase()
+        
+        existing = supabase.table('chat_sessions').select('id').eq('user_id', user_id).eq('session_id', session_id).limit(1).execute()
+        
+        if existing.data and len(existing.data) > 0:
+            result = supabase.table('chat_sessions').update({
+                'title': title
+            }).eq('user_id', user_id).eq('session_id', session_id).execute()
+        else:
+            result = supabase.table('chat_sessions').insert({
+                'user_id': user_id,
+                'session_id': session_id,
+                'title': title
+            }).execute()
+        
+        if result.data:
+            return {"success": True}
+        return {"success": False, "error": "保存会话失败"}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "保存会话失败")}
+
+
+def save_chat_message(access_token: str, session_id: str, role: str, content: str):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        user_id = user_result['user']['id']
+        supabase = get_supabase_admin() or get_supabase()
+        
+        result = supabase.table('chat_messages').insert({
+            'user_id': user_id,
+            'session_id': session_id,
+            'role': role,
+            'content': content
+        }).execute()
+        
+        if result.data:
+            return {"success": True}
+        return {"success": False, "error": "保存消息失败"}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "保存消息失败")}
+
+
+def load_chat_sessions(access_token: str):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        user_id = user_result['user']['id']
+        supabase = get_supabase_admin() or get_supabase()
+        
+        result = supabase.table('chat_sessions').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
+        
+        sessions = []
+        for row in result.data:
+            sessions.append({
+                'session_id': row.get('session_id'),
+                'title': row.get('title', '新对话'),
+                'created_at': row.get('created_at')
+            })
+        
+        return {"success": True, "sessions": sessions}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "加载会话失败")}
+
+
+def load_chat_messages(access_token: str, session_id: str):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        user_id = user_result['user']['id']
+        supabase = get_supabase_admin() or get_supabase()
+        
+        result = supabase.table('chat_messages').select('*').eq('user_id', user_id).eq('session_id', session_id).order('created_at').execute()
+        
+        messages = []
+        for row in result.data:
+            messages.append({
+                'role': row.get('role'),
+                'content': row.get('content'),
+                'created_at': row.get('created_at')
+            })
+        
+        return {"success": True, "messages": messages}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "加载消息失败")}
+
+
+def upload_file(access_token: str, file_path: str, bucket_name: str = 'lesson-files'):
+    import os
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        user_id = user_result['user']['id']
+        supabase = get_supabase_admin() or get_supabase()
+        
+        file_name = os.path.basename(file_path)
+        remote_path = f'{user_id}/{file_name}'
+        
+        with open(file_path, 'rb') as f:
+            result = supabase.storage.from_(bucket_name).upload(
+                path=remote_path,
+                file=f,
+                file_options={'content-type': 'application/octet-stream'}
+            )
+        
+        public_url = supabase.storage.from_(bucket_name).get_public_url(remote_path)
+        return {"success": True, "url": public_url}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "上传文件失败")}
+
+
+def list_user_files(access_token: str, bucket_name: str = 'lesson-files'):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        user_id = user_result['user']['id']
+        supabase = get_supabase_admin() or get_supabase()
+        
+        result = supabase.storage.from_(bucket_name).list(user_id)
+        
+        files = []
+        for item in result:
+            if item.get('type') == 'file':
+                file_name = item.get('name')
+                remote_path = f'{user_id}/{file_name}'
+                url = supabase.storage.from_(bucket_name).get_public_url(remote_path)
+                files.append({
+                    'name': file_name,
+                    'url': url,
+                    'size': item.get('size', 0)
+                })
+        
+        return {"success": True, "files": files}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "获取文件列表失败")}
+
+
+def delete_chat_session(access_token: str, session_id: str):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        user_id = user_result['user']['id']
+        supabase = get_supabase_admin() or get_supabase()
+        
+        result = supabase.table('chat_sessions').delete().eq('user_id', user_id).eq('session_id', session_id).execute()
+        
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "删除会话失败")}
+
+
+def delete_chat_messages(access_token: str, session_id: str):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        user_id = user_result['user']['id']
+        supabase = get_supabase_admin() or get_supabase()
+        
+        result = supabase.table('chat_messages').delete().eq('user_id', user_id).eq('session_id', session_id).execute()
+        
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "删除消息失败")}
+
+
+def delete_file(access_token: str, file_name: str, bucket_name: str = 'lesson-files'):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        user_id = user_result['user']['id']
+        supabase = get_supabase_admin() or get_supabase()
+        
+        remote_path = f'{user_id}/{file_name}'
+        result = supabase.storage.from_(bucket_name).remove([remote_path])
+        
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "删除文件失败")}
+
+
+def delete_all_user_data(access_token: str):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        user_id = user_result['user']['id']
+        supabase = get_supabase_admin() or get_supabase()
+        
+        supabase.table('chat_messages').delete().eq('user_id', user_id).execute()
+        
+        supabase.table('chat_sessions').delete().eq('user_id', user_id).execute()
+        
+        try:
+            files = supabase.storage.from_('lesson-files').list(user_id)
+            if files:
+                paths = [f'{user_id}/{f["name"]}' for f in files if f.get('type') == 'file']
+                if paths:
+                    supabase.storage.from_('lesson-files').remove(paths)
+        except Exception:
+            pass
+        
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "删除用户数据失败")}
+
+
+def sync_search_history(access_token: str, user_id: str, query: str):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        supabase = get_supabase_admin() or get_supabase()
+        
+        result = supabase.table('search_history').insert({
+            'user_id': user_id,
+            'query': query
+        }).execute()
+        
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "同步搜索历史失败")}
+
+
+def load_search_history(access_token: str, user_id: str, limit: int = 50):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        supabase = get_supabase_admin() or get_supabase()
+        
+        result = supabase.table('search_history').select('*').eq('user_id', user_id).order('created_at', desc=True).limit(limit).execute()
+        
+        history = []
+        for row in result.data:
+            history.append({
+                'query': row.get('query'),
+                'created_at': row.get('created_at')
+            })
+        
+        return {"success": True, "history": history}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "加载搜索历史失败")}
+
+
+def delete_search_history(access_token: str, user_id: str):
+    try:
+        user_result = get_user(access_token)
+        if not user_result.get('success'):
+            return {"success": False, "error": "用户未登录"}
+        
+        supabase = get_supabase_admin() or get_supabase()
+        
+        result = supabase.table('search_history').delete().eq('user_id', user_id).execute()
+        
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": _safe_error(e, "删除搜索历史失败")}
+
+
+_SYNC_STATUS = {}
+_SYNC_STATUS_LOCK = threading.Lock()
+
+def get_sync_status(user_id: str):
+    with _SYNC_STATUS_LOCK:
+        return _SYNC_STATUS.get(user_id, {"status": "idle", "last_sync": None, "pending_count": 0})
+
+def update_sync_status(user_id: str, status: str, pending_count: int = 0):
+    with _SYNC_STATUS_LOCK:
+        _SYNC_STATUS[user_id] = {
+            "status": status,
+            "last_sync": time.time(),
+            "pending_count": pending_count
+        }

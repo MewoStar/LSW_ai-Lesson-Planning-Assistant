@@ -391,7 +391,7 @@ def get_chat_messages(user_session_id):
     finally:
         conn.close()
 
-def save_search_history(user_id, query):
+def save_search_history(user_id, query, access_token=None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     try:
@@ -402,6 +402,12 @@ def save_search_history(user_id, query):
         conn.commit()
     finally:
         conn.close()
+
+    if access_token:
+        try:
+            supabase_client.sync_search_history(access_token, user_id, query)
+        except Exception:
+            pass
 
 def get_search_history(user_id, limit=50):
     conn = sqlite3.connect(DB_PATH)

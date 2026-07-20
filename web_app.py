@@ -69,6 +69,14 @@ app = Flask(__name__, template_folder=template_dir)
 app.secret_key = SECRET_KEY
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
+import logging
+app.logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+app.logger.addHandler(handler)
+
 API_KEY = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY") or cfg.get("api_key") or ""
 BASE_URL = cfg.get("base_url") or os.environ.get("DEEPSEEK_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or "https://api.deepseek.com/v1"
 MODEL = cfg.get("model", "deepseek-chat")
@@ -126,6 +134,7 @@ _CSRF_EXEMPT = {
     '/api/lesson_plan/template_upload', '/api/lesson_plan/template_fill', '/api/lesson_plan/template_confirm', '/api/lesson_plan/template_generate',
     '/api/upload', '/api/download', '/api/avatar',
     '/api/profile/avatar', '/api/profile/username',
+    '/api/update/install',
     '/logout',
     '/admin/login', '/admin/logout',
     '/admin/api/admin/change_password'
@@ -196,6 +205,8 @@ def _check_csrf():
     user = get_current_user()
     if not user:
         return True
+    if user.get('is_admin'):
+        return True
     token = request.headers.get('X-CSRF-Token') or request.form.get('_csrf_token')
     if not _validate_csrf_token(token, user['id']):
         return False
@@ -263,6 +274,46 @@ def get_user_output_dir(user_id=None):
         user_dir = os.path.join(HISTORY_DIR, "public")
     os.makedirs(user_dir, exist_ok=True)
     return user_dir
+
+def sync_to_cloud_helper(access_token, user_id, session_id, title, user_message, assistant_reply, saved_files=None, saved_ppts=None):
+    def do_sync():
+        try:
+            app.logger.info(f"[CloudSync] 开始同步 session_id={session_id}")
+            supabase_client.update_sync_status(user_id, "syncing", 1)
+            
+            r1 = supabase_client.save_chat_session(access_token, session_id, title)
+            app.logger.info(f"[CloudSync] save_chat_session: {r1}")
+            
+            r2 = supabase_client.save_chat_message(access_token, session_id, 'user', user_message)
+            app.logger.info(f"[CloudSync] save_message(user): {r2}")
+            
+            r3 = supabase_client.save_chat_message(access_token, session_id, 'assistant', assistant_reply)
+            app.logger.info(f"[CloudSync] save_message(assistant): {r3}")
+            
+            if saved_files:
+                user_output_dir = get_user_output_dir(user_id)
+                for filename in saved_files:
+                    filepath = os.path.join(user_output_dir, filename)
+                    if os.path.exists(filepath):
+                        r4 = supabase_client.upload_file(access_token, filepath)
+                        app.logger.info(f"[CloudSync] upload_file {filename}: {r4.get('success')}")
+            
+            if saved_ppts:
+                user_output_dir = get_user_output_dir(user_id)
+                for filename in saved_ppts:
+                    filepath = os.path.join(user_output_dir, filename)
+                    if os.path.exists(filepath):
+                        r5 = supabase_client.upload_file(access_token, filepath)
+                        app.logger.info(f"[CloudSync] upload_ppt {filename}: {r5.get('success')}")
+            
+            app.logger.info(f"[CloudSync] 同步完成")
+            supabase_client.update_sync_status(user_id, "synced", 0)
+        except Exception as e:
+            app.logger.warning(f"[CloudSync] 同步失败，回退到本地存储: {e}", exc_info=True)
+            supabase_client.update_sync_status(user_id, "failed", 1)
+    
+    cloud_sync_thread = threading.Thread(target=do_sync, daemon=True)
+    cloud_sync_thread.start()
 
 SYSTEM_PROMPT = """你是专业的「AI 备课助手」，服务对象是中小学 / 职业院校的一线教师。你的任务是根据教师的需求，按规范格式生成高质量的教学资源，并**严格用指定标签包裹可保存的文件内容**，方便系统自动解析并下载。
 
@@ -1395,8 +1446,7 @@ def index():
         return redirect(url_for('login'))
     return render_template("index.html", model=MODEL, username=user['username'])
 
-_login_attempts = {}
-_login_lock = threading.Lock()
+
 
 def _get_client_ip():
     # 修复 S7：使用 ipaddress 模块完整判断私有/回环地址，仅信任非私有的 X-Forwarded-For 首个 IP，
@@ -1414,50 +1464,6 @@ def _get_client_ip():
                 pass
         return request.remote_addr or '127.0.0.1'
     return '127.0.0.1'
-
-def _check_login_rate_limit(ip: str, username: str) -> bool:
-    now = time.time()
-    ip_key = f"ip:{ip}"
-    user_key = f"user:{username}"
-    with _login_lock:
-        if ip_key not in _login_attempts:
-            _login_attempts[ip_key] = []
-        if user_key not in _login_attempts:
-            _login_attempts[user_key] = []
-        
-        ip_attempts = [t for t in _login_attempts[ip_key] if now - t < 900]
-        user_attempts = [t for t in _login_attempts[user_key] if now - t < 900]
-        
-        _login_attempts[ip_key] = ip_attempts
-        _login_attempts[user_key] = user_attempts
-        
-        if len(_login_attempts) > 1000:
-            expired_keys = [k for k, v in _login_attempts.items() if not v]
-            for k in expired_keys:
-                del _login_attempts[k]
-        
-        if len(ip_attempts) >= 15 or len(user_attempts) >= 5:
-            return False
-        return True
-
-def _record_login_failure(ip: str, username: str):
-    now = time.time()
-    ip_key = f"ip:{ip}"
-    user_key = f"user:{username}"
-    with _login_lock:
-        if ip_key not in _login_attempts:
-            _login_attempts[ip_key] = []
-        if user_key not in _login_attempts:
-            _login_attempts[user_key] = []
-        _login_attempts[ip_key].append(now)
-        _login_attempts[user_key].append(now)
-
-def _clear_login_failures(ip: str, username: str):
-    ip_key = f"ip:{ip}"
-    user_key = f"user:{username}"
-    with _login_lock:
-        _login_attempts.pop(ip_key, None)
-        _login_attempts.pop(user_key, None)
 
 def _set_admin_auth_cookies(response, admin_session_token):
     """下发管理员会话 cookie。仅携带服务端会话 token，不再下发 admin_user 之类的身份信息。"""
@@ -1486,14 +1492,10 @@ def login():
         if not username or not password:
             return jsonify({"error": "用户名和密码不能为空"}), 400
 
-        if not _check_login_rate_limit(ip, username):
-            return jsonify({"error": "登录尝试过于频繁，请5分钟后再试"}), 429
-
         # 管理员：通过数据库 admin_users 表验证，登录成功创建服务端会话
         admin_result = database.verify_admin_password(username, password)
         if admin_result.get("success"):
             admin = admin_result["admin"]
-            _clear_login_failures(ip, username)
             session_token = database.create_admin_session(
                 admin["id"], ip_address=ip,
                 user_agent=request.headers.get('User-Agent', '')[:200]
@@ -1510,8 +1512,6 @@ def login():
 
         # 管理员账号被识别但验证失败（密码错/被禁用），直接走失败流程
         if admin_result.get("reason") in ("wrong_password", "inactive", "corrupt"):
-            _record_login_failure(ip, username)
-            database.record_login_attempt(ip, username, success=False)
             return jsonify({"error": admin_result.get("error", "用户名或密码错误")}), 401
 
         login_email = username
@@ -1522,13 +1522,11 @@ def login():
             else:
                 email_result = supabase_client.get_email_by_username(username)
                 if not email_result["success"]:
-                    _record_login_failure(ip, username)
                     return jsonify({"error": "用户名或密码错误"}), 401
                 login_email = email_result["email"]
 
         user = database.authenticate_user(login_email, password)
         if user:
-            _clear_login_failures(ip, username)
             access_token = user.get('access_token') or database.generate_session_token()
             csrf_token = _generate_csrf_token(user['id'])
             response = jsonify({"status": "success", "username": user['username'], "is_admin": False, "csrf_token": csrf_token})
@@ -1538,7 +1536,6 @@ def login():
                                 samesite='Lax', max_age=86400*7)
             return response
         else:
-            _record_login_failure(ip, username)
             return jsonify({"error": "用户名或密码错误"}), 401
 
     return render_template("login.html")
@@ -2021,6 +2018,11 @@ def chat():
 
     saved_files, saved_ppts, display = extract_and_save_all(user_message, reply, user['id'])
 
+    access_token = request.cookies.get('session_token')
+    app.logger.info(f"[CloudSync] access_token exists: {bool(access_token)}, is_admin: {user.get('is_admin')}, user_id: {user.get('id')}")
+    if access_token and not user.get('is_admin'):
+        sync_to_cloud_helper(access_token, user['id'], session_id, title, user_message, reply, saved_files, saved_ppts)
+
     return jsonify({
         "reply": display,
         "raw_reply": reply,
@@ -2169,6 +2171,11 @@ def chat_stream():
         if key not in sessions:
             sessions[key] = [{"role": "system", "content": SYSTEM_PROMPT}]
         sessions[key].append({"role": "user", "content": user_message})
+
+    # 在请求上下文中预先获取 access_token（generator 运行时已脱离请求上下文）
+    stream_access_token = request.cookies.get('session_token')
+    stream_is_admin = user.get('is_admin')
+    stream_user_id = user['id']
 
     def generate():
         thinking_phases = generate_thinking_phases(user_message)
@@ -2319,6 +2326,9 @@ def chat_stream():
 
             saved_files, saved_ppts, display = extract_and_save_all(user_message, full_reply, user['id'])
 
+            if stream_access_token and not stream_is_admin:
+                sync_to_cloud_helper(stream_access_token, stream_user_id, session_id, title, user_message, full_reply, saved_files, saved_ppts)
+
             final_thinking_text = thinking_to_text(thinking_phases, len(thinking_phases) - 1, len(thinking_phases[-1]["items"]) - 1)
             yield f"data: {json.dumps({'type': 'done', 'content': display, 'raw_content': full_reply, 'saved_files': saved_files, 'saved_ppts': saved_ppts, 'thinking': final_thinking_text}, ensure_ascii=False)}\n\n"
 
@@ -2349,6 +2359,8 @@ def list_sessions():
 
     db_sessions = database.get_user_sessions(user['id'])
     result = []
+    session_ids = set()
+    
     for s in db_sessions:
         result.append({
             "id": s['session_id'],
@@ -2356,6 +2368,25 @@ def list_sessions():
             "message_count": 0,
             "created_at": s['created_at']
         })
+        session_ids.add(s['session_id'])
+
+    access_token = request.cookies.get('session_token')
+    if access_token and not user.get('is_admin'):
+        try:
+            cloud_result = supabase_client.load_chat_sessions(access_token)
+            if cloud_result.get('success'):
+                for cloud_session in cloud_result.get('sessions', []):
+                    if cloud_session['session_id'] not in session_ids:
+                        result.append({
+                            "id": cloud_session['session_id'],
+                            "title": cloud_session.get('title', '新对话'),
+                            "message_count": 0,
+                            "created_at": cloud_session.get('created_at')
+                        })
+        except Exception as e:
+            app.logger.warning(f"Load cloud sessions failed: {e}")
+
+    result.sort(key=lambda x: x.get('created_at', ''), reverse=True)
     return jsonify({"sessions": result})
 
 @app.route("/api/session/<session_id>", methods=["GET"])
@@ -2390,6 +2421,33 @@ def get_session(session_id):
             "title": db_session['title'],
             "messages": []
         })
+
+    access_token = request.cookies.get('session_token')
+    if access_token and not user.get('is_admin'):
+        try:
+            cloud_messages = supabase_client.load_chat_messages(access_token, session_id)
+            if cloud_messages.get('success') and cloud_messages.get('messages'):
+                cloud_sessions = supabase_client.load_chat_sessions(access_token)
+                title = '新对话'
+                if cloud_sessions.get('success'):
+                    for s in cloud_sessions.get('sessions', []):
+                        if s['session_id'] == session_id:
+                            title = s.get('title', '新对话')
+                            break
+                
+                messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+                messages.extend(cloud_messages['messages'])
+                
+                with sessions_lock:
+                    sessions[key] = messages
+                
+                return jsonify({
+                    "id": session_id,
+                    "title": title,
+                    "messages": messages
+                })
+        except Exception as e:
+            app.logger.warning(f"Load cloud messages failed: {e}")
     
     return jsonify({"error": "会话不存在"}), 404
 
@@ -2404,6 +2462,23 @@ def delete_session(session_id):
     with sessions_lock:
         if key in sessions:
             del sessions[key]
+
+    access_token = request.cookies.get('session_token')
+    if access_token and not user.get('is_admin'):
+        def sync_delete_to_cloud():
+            try:
+                app.logger.info(f"[CloudSync] 开始删除云端会话 session_id={session_id}")
+                r1 = supabase_client.delete_chat_messages(access_token, session_id)
+                app.logger.info(f"[CloudSync] delete_chat_messages 结果: {r1.get('success')}")
+                r2 = supabase_client.delete_chat_session(access_token, session_id)
+                app.logger.info(f"[CloudSync] delete_chat_session 结果: {r2.get('success')}")
+                app.logger.info(f"[CloudSync] 删除会话完成")
+            except Exception as e:
+                app.logger.warning(f"[CloudSync] 删除会话失败: {e}", exc_info=True)
+        
+        cloud_sync_thread = threading.Thread(target=sync_delete_to_cloud, daemon=True)
+        cloud_sync_thread.start()
+
     return jsonify({"status": "ok"})
 
 @app.route("/api/sessions/batch", methods=["DELETE"])
@@ -2422,6 +2497,22 @@ def delete_sessions_batch():
             if key in sessions:
                 del sessions[key]
         deleted += 1
+
+    access_token = request.cookies.get('session_token')
+    if access_token and not user.get('is_admin') and ids:
+        def sync_batch_delete_to_cloud():
+            try:
+                app.logger.info(f"[CloudSync] 开始批量删除云端会话, 数量={len(ids)}")
+                for sid in ids:
+                    supabase_client.delete_chat_messages(access_token, sid)
+                    supabase_client.delete_chat_session(access_token, sid)
+                app.logger.info(f"[CloudSync] 批量删除会话完成")
+            except Exception as e:
+                app.logger.warning(f"[CloudSync] 批量删除会话失败: {e}", exc_info=True)
+        
+        cloud_sync_thread = threading.Thread(target=sync_batch_delete_to_cloud, daemon=True)
+        cloud_sync_thread.start()
+
     return jsonify({"status": "ok", "deleted": deleted})
 
 @app.route("/api/sessions/all", methods=["DELETE"])
@@ -2436,7 +2527,34 @@ def delete_all_sessions():
         for key in to_delete:
             del sessions[key]
     db_deleted = database.delete_all_user_sessions(user['id'])
+
+    access_token = request.cookies.get('session_token')
+    if access_token and not user.get('is_admin'):
+        def sync_all_delete_to_cloud():
+            try:
+                app.logger.info(f"[CloudSync] 开始删除用户所有云端数据 user_id={user['id']}")
+                r1 = supabase_client.delete_all_user_data(access_token)
+                app.logger.info(f"[CloudSync] delete_all_user_data 结果: {r1.get('success')}")
+                app.logger.info(f"[CloudSync] 删除所有会话完成")
+            except Exception as e:
+                app.logger.warning(f"[CloudSync] 删除所有会话失败: {e}", exc_info=True)
+        
+        cloud_sync_thread = threading.Thread(target=sync_all_delete_to_cloud, daemon=True)
+        cloud_sync_thread.start()
+
     return jsonify({"status": "ok", "memory_deleted": len(to_delete), "db_deleted": db_deleted})
+
+@app.route("/api/cloud/sync/status", methods=["GET"])
+def get_cloud_sync_status():
+    user = get_current_user()
+    if not user:
+        return jsonify({"error": "请先登录"}), 401
+
+    if user.get('is_admin'):
+        return jsonify({"status": "idle", "last_sync": None, "pending_count": 0, "message": "管理员账号不参与云端同步"})
+
+    status = supabase_client.get_sync_status(user['id'])
+    return jsonify(status)
 
 @app.route("/api/search_history", methods=["GET"])
 def get_search_history():
@@ -2445,6 +2563,23 @@ def get_search_history():
         return jsonify({"error": "请先登录"}), 401
 
     history = database.get_search_history(user['id'], limit=50)
+    
+    access_token = request.cookies.get('session_token')
+    if access_token and not user.get('is_admin'):
+        try:
+            cloud_result = supabase_client.load_search_history(access_token, user['id'], limit=50)
+            if cloud_result.get('success'):
+                cloud_history = cloud_result.get('history', [])
+                combined = {}
+                for h in history:
+                    combined[h['query']] = h
+                for h in cloud_history:
+                    if h['query'] not in combined:
+                        combined[h['query']] = h
+                history = sorted(combined.values(), key=lambda x: x['created_at'], reverse=True)[:50]
+        except Exception as e:
+            app.logger.warning(f"[CloudSync] 加载云端搜索历史失败: {e}")
+
     return jsonify({"history": history})
 
 @app.route("/api/search_history", methods=["DELETE"])
@@ -2454,6 +2589,19 @@ def clear_search_history():
         return jsonify({"error": "请先登录"}), 401
 
     deleted = database.clear_search_history(user['id'])
+
+    access_token = request.cookies.get('session_token')
+    if access_token and not user.get('is_admin'):
+        def sync_clear_search_history():
+            try:
+                app.logger.info(f"[CloudSync] 开始删除云端搜索历史 user_id={user['id']}")
+                r1 = supabase_client.delete_search_history(access_token, user['id'])
+                app.logger.info(f"[CloudSync] delete_search_history 结果: {r1.get('success')}")
+            except Exception as e:
+                app.logger.warning(f"[CloudSync] 删除云端搜索历史失败: {e}", exc_info=True)
+        
+        cloud_sync_thread = threading.Thread(target=sync_clear_search_history, daemon=True)
+        cloud_sync_thread.start()
     return jsonify({"status": "ok", "deleted": deleted})
 
 @app.route("/api/config", methods=["GET"])
@@ -3782,13 +3930,9 @@ def admin_login():
     if not username or not password:
         return jsonify({"error": "用户名和密码不能为空"}), 400
 
-    if not _check_login_rate_limit(ip, username):
-        return jsonify({"error": "登录尝试过多，请15分钟后再试"}), 429
-
     result = database.verify_admin_password(username, password)
     if result.get("success"):
         admin = result["admin"]
-        _clear_login_failures(ip, username)
         session_token = database.create_admin_session(
             admin["id"], ip_address=ip,
             user_agent=request.headers.get('User-Agent', '')[:200]
@@ -3808,8 +3952,6 @@ def admin_login():
         _set_admin_auth_cookies(response, session_token)
         return response
     else:
-        _record_login_failure(ip, username)
-        database.record_login_attempt(ip, username, success=False)
         # 不暴露具体原因（账号不存在 vs 密码错误），统一返回"用户名或密码错误"
         safe_error = "用户名或密码错误" if result.get("reason") in ("not_found", "wrong_password", "corrupt") else result.get("error", "登录失败")
         return jsonify({"error": safe_error}), 401
@@ -3826,9 +3968,16 @@ def admin_dashboard():
 @app.route("/admin/logout", methods=["GET", "POST"])
 def admin_logout():
     admin = admin_identity()
-    token = request.cookies.get('admin_session')
-    if token:
-        database.delete_admin_session(token)
+    admin_token = request.cookies.get('admin_session')
+    if admin_token:
+        database.delete_admin_session(admin_token)
+    user_token = request.cookies.get('session_token')
+    if user_token:
+        database.clear_session_token(user_token)
+        try:
+            supabase_client.sign_out_by_token(user_token)
+        except Exception:
+            pass
     database.log_admin_action(admin, "logout", details="管理员退出登录", ip_address=get_client_ip())
     if request.method == 'GET':
         response = make_response(redirect('/admin/login'))
@@ -3960,8 +4109,11 @@ def admin_create_user():
     if not email or not password:
         return jsonify({"error": "邮箱和密码不能为空"}), 400
 
-    if len(password) < 6:
-        return jsonify({"error": "密码长度至少6位"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "密码长度至少8位"}), 400
+
+    if not re.search(r'[A-Za-z]', password) or not re.search(r'[0-9]', password):
+        return jsonify({"error": "密码需包含字母和数字"}), 400
 
     result = supabase_client.admin_create_user(email, password, username, role)
     if result["success"]:
@@ -4177,8 +4329,11 @@ def admin_reset_password(user_id):
     if not new_password:
         return jsonify({"error": "新密码不能为空"}), 400
 
-    if len(new_password) < 6:
-        return jsonify({"error": "密码长度至少6位"}), 400
+    if len(new_password) < 8:
+        return jsonify({"error": "密码长度至少8位"}), 400
+
+    if not re.search(r'[A-Za-z]', new_password) or not re.search(r'[0-9]', new_password):
+        return jsonify({"error": "密码需包含字母和数字"}), 400
 
     result = supabase_client.admin_update_user_password(user_id, new_password)
     if result["success"]:
@@ -4610,7 +4765,7 @@ def admin_get_system_info():
             "disk_percent": disk_percent,
             "uptime": uptime,
             "current_time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
-            "app_version": "4.0",
+            "app_version": _read_current_version(),
             "admin_users": [a['username'] for a in database.list_admin_users()]
         }
     })
@@ -4666,10 +4821,351 @@ def admin_enable_user(user_id):
     else:
         return jsonify({"success": False, "error": result["error"]}), 500
 
+
+# ============================================
+# 自动更新接口（/api/update/check、/api/update/download、/api/update/install）
+# 默认从 Gitee Releases 拉取，回退到 GitHub
+# ============================================
+import urllib.request
+import urllib.error
+import urllib.parse
+import shutil
+import subprocess
+
+# 更新源配置（可通过 config.yaml 覆盖）
+_GITEE_OWNER = cfg.get("update_gitee_owner", "MewoStar")
+_GITEE_REPO = cfg.get("update_gitee_repo", "LSW_ai-Lesson-Planning-Assistant")
+_GITHUB_OWNER = cfg.get("update_github_owner", "MewoStar")
+_GITHUB_REPO = cfg.get("update_github_repo", "LSW_ai-Lesson-Planning-Assistant")
+# update_source: 'gitee'（默认）或 'github'，gitee 失败时自动回退到 github
+_UPDATE_SOURCE = cfg.get("update_source", "gitee")
+
+# 临时安装包存放目录（下载完成后 60 秒清理）
+_UPDATE_TEMP_DIR = os.path.join(str(DATA_DIR), "_update_tmp")
+os.makedirs(_UPDATE_TEMP_DIR, exist_ok=True)
+
+
+def _read_current_version():
+    """读取 version.txt 中的当前版本号，返回 '5.4.1' 形式"""
+    try:
+        vpath = BASE_DIR / "version.txt"
+        if vpath.exists():
+            with open(vpath, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith("版本") or line.lower().startswith("version"):
+                        # 兼容 "版本: 5.4.1" / "Version: 5.4.1"
+                        v = line.split(":", 1)[-1].strip().lstrip("Vv")
+                        if v:
+                            return v
+    except Exception:
+        pass
+    return "0.0.0"
+
+
+def _parse_version(v):
+    """将版本号字符串解析为元组，便于比较，例如 '5.4.1' -> (5, 4, 1)"""
+    parts = []
+    for p in (v or "").lstrip("Vv").split("."):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            # 非数字段视为 0，保证比较不会抛异常
+            parts.append(0)
+    return tuple(parts)
+
+
+def _find_exe_asset(assets, raw_tag):
+    """从 assets 中找到合适的 exe 安装包，返回 (asset, download_url) 或 (None, None)"""
+    asset = None
+    for a in assets:
+        fname = a.get("name") or ""
+        if fname.lower().endswith(".exe") and ("安装包" in fname or "setup" in fname.lower()):
+            asset = a
+            break
+    if not asset and assets:
+        for a in assets:
+            fname = a.get("name") or ""
+            if fname.lower().endswith(".exe"):
+                asset = a
+                break
+    if not asset:
+        return None, None
+    filename = asset.get("name") or ""
+    download_url = asset.get("browser_download_url") or f"https://gitee.com/{_GITEE_OWNER}/{_GITEE_REPO}/releases/download/{raw_tag}/{urllib.parse.quote(filename)}"
+    return asset, download_url
+
+
+def _fetch_gitee_latest_release():
+    """从 Gitee 获取最新 Release，返回 dict 或 None
+    注意：优先使用 /releases 获取列表后自行比较版本号找出最新（Gitee latest 判断不准确），
+    如果列表 API 失败，则回退到 /releases/latest。
+    """
+    url = f"https://gitee.com/api/v5/repos/{_GITEE_OWNER}/{_GITEE_REPO}/releases?page=1&per_page=20"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "BeikeAssistant"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            if "json" not in content_type.lower():
+                raise ValueError(f"非 JSON 响应: {content_type}")
+            releases = json.loads(resp.read().decode("utf-8"))
+        if not isinstance(releases, list) or not releases:
+            raise ValueError("空列表")
+        best = None
+        best_parsed = (0,)
+        for data in releases:
+            raw_tag = data.get("tag_name") or ""
+            tag = raw_tag.lstrip("Vv")
+            if not tag:
+                continue
+            parsed = _parse_version(tag)
+            if parsed > best_parsed:
+                assets = data.get("assets") or []
+                asset, download_url = _find_exe_asset(assets, raw_tag)
+                if not asset:
+                    continue
+                best_parsed = parsed
+                best = {
+                    "tag": tag,
+                    "raw_tag": raw_tag,
+                    "name": data.get("name") or tag,
+                    "notes": data.get("body") or "",
+                    "download_url": download_url,
+                    "file_name": asset.get("name") or "",
+                    "file_size": asset.get("size"),
+                }
+        if best:
+            return best
+    except Exception as e:
+        print(f"[update] Gitee releases 列表 API 失败，尝试回退: {e}")
+
+    try:
+        url = f"https://gitee.com/api/v5/repos/{_GITEE_OWNER}/{_GITEE_REPO}/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "BeikeAssistant"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        raw_tag = data.get("tag_name") or ""
+        tag = raw_tag.lstrip("Vv")
+        name = data.get("name") or tag
+        body = data.get("body") or ""
+        assets = data.get("assets") or []
+        asset, download_url = _find_exe_asset(assets, raw_tag)
+        if not asset:
+            return None
+        return {
+            "tag": tag,
+            "raw_tag": raw_tag,
+            "name": name,
+            "notes": body,
+            "download_url": download_url,
+            "file_name": asset.get("name") or "",
+            "file_size": asset.get("size"),
+        }
+    except Exception as e:
+        print(f"[update] Gitee latest release fetch failed: {e}")
+        return None
+
+
+def _fetch_github_latest_release():
+    """从 GitHub 获取最新 Release，返回 dict 或 None"""
+    url = f"https://api.github.com/repos/{_GITHUB_OWNER}/{_GITHUB_REPO}/releases/latest"
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "BeikeAssistant",
+            "Accept": "application/vnd.github+json"
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        tag = (data.get("tag_name") or "").lstrip("Vv")
+        name = data.get("name") or tag
+        body = data.get("body") or ""
+        assets = data.get("assets") or []
+        asset = None
+        for a in assets:
+            fname = a.get("name") or ""
+            if fname.lower().endswith(".exe") and "安装包" in fname:
+                asset = a
+                break
+        if not asset:
+            return None
+        return {
+            "tag": tag,
+            "name": name,
+            "notes": body,
+            "download_url": asset.get("browser_download_url"),
+            "file_name": asset.get("name"),
+            "file_size": asset.get("size"),
+        }
+    except Exception as e:
+        print(f"[update] GitHub latest release fetch failed: {e}")
+        return None
+
+
+def _fetch_latest_release():
+    """按配置的源顺序获取最新 Release，失败则回退"""
+    if _UPDATE_SOURCE != "github":
+        r = _fetch_gitee_latest_release()
+        if r:
+            return r
+        # Gitee 失败时回退到 GitHub
+        return _fetch_github_latest_release()
+    else:
+        r = _fetch_github_latest_release()
+        if r:
+            return r
+        return _fetch_gitee_latest_release()
+
+
+@app.route("/api/update/check", methods=["GET"])
+def api_update_check():
+    """检查是否有新版本。无需 CSRF（GET），但需要登录。"""
+    user = get_current_user()
+    if not user:
+        return jsonify({"success": False, "error": "请先登录"}), 401
+
+    current = _read_current_version()
+    rel = _fetch_latest_release()
+    if not rel:
+        return jsonify({
+            "success": True,
+            "has_update": False,
+            "check_failed": True,
+            "current_version": current,
+            "error": "无法获取远程版本信息"
+        })
+
+    latest = rel["tag"]
+    has_update = _parse_version(latest) > _parse_version(current)
+    return jsonify({
+        "success": True,
+        "has_update": has_update,
+        "current_version": current,
+        "latest_version": latest,
+        "release_name": rel["name"],
+        "release_notes": rel["notes"],
+        "download_url": rel["download_url"],
+        "file_name": rel["file_name"],
+        "file_size": rel["file_size"],
+    })
+
+
+@app.route("/api/update/download", methods=["GET"])
+def api_update_download():
+    """
+    SSE 流式下载安装包。
+    前端用 EventSource 监听，事件阶段：
+      connecting / downloading / retry / done / error
+    下载完成后做 SHA256 校验，通过则返回本地 file_path 供 /api/update/install 使用。
+    临时文件 60 秒后由后台线程清理。
+    """
+    user = get_current_user()
+    if not user:
+        return jsonify({"success": False, "error": "请先登录"}), 401
+
+    download_url = request.args.get("download_url")
+    if not download_url:
+        return jsonify({"success": False, "error": "缺少 download_url 参数"}), 400
+
+    max_attempts = 3
+    target_path = os.path.join(_UPDATE_TEMP_DIR, f"setup_{int(time.time())}.exe")
+
+    def generate():
+        attempt = 0
+        last_err = ""
+        while attempt < max_attempts:
+            attempt += 1
+            yield f"data: {json.dumps({'stage': 'connecting', 'attempt': attempt, 'max': max_attempts})}\n\n"
+            try:
+                sha256 = hashlib.sha256()
+                opener = urllib.request.build_opener(urllib.request.HTTPRedirectHandler())
+                req = urllib.request.Request(download_url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                })
+                with opener.open(req, timeout=60) as resp:
+                    final_url = resp.geturl()
+                    total = 0
+                    try:
+                        total = int(resp.headers.get("Content-Length") or 0)
+                    except (ValueError, TypeError):
+                        total = 0
+                    downloaded = 0
+                    chunk_size = 64 * 1024
+                    with open(target_path, "wb") as f:
+                        while True:
+                            chunk = resp.read(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            sha256.update(chunk)
+                            downloaded += len(chunk)
+                            progress = int(downloaded * 100 / total) if total else min(99, int(downloaded / (1024*1024)))
+                            yield f"data: {json.dumps({'stage': 'downloading', 'downloaded': downloaded, 'total': total, 'progress': progress})}\n\n"
+                if downloaded < 1024 * 1024:
+                    raise Exception(f"下载文件过小 ({downloaded} bytes)，可能是下载页面而非安装包")
+                final_sha = sha256.hexdigest()
+                yield f"data: {json.dumps({'stage': 'done', 'file_path': target_path, 'sha256': final_sha, 'file_size': downloaded})}\n\n"
+                def _cleanup():
+                    try:
+                        if os.path.exists(target_path):
+                            os.remove(target_path)
+                    except Exception:
+                        pass
+                threading.Timer(60.0, _cleanup).start()
+                return
+            except Exception as e:
+                last_err = str(e)
+                try:
+                    if os.path.exists(target_path):
+                        os.remove(target_path)
+                except Exception:
+                    pass
+                if attempt < max_attempts:
+                    yield f"data: {json.dumps({'stage': 'retry', 'attempt': attempt, 'max': max_attempts, 'error': last_err})}\n\n"
+                    time.sleep(2)
+                else:
+                    yield f"data: {json.dumps({'stage': 'error', 'error': last_err or '下载失败'})}\n\n"
+                    return
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/api/update/install", methods=["POST"])
+def api_update_install():
+    """
+    静默启动安装包进行覆盖升级。
+    安装包（Inno Setup）支持 /SILENT 参数，会自动停止旧服务、覆盖文件、保留用户数据。
+    启动安装后，当前进程会被安装程序关闭，新版本由 installer 的 [Run] 段自动启动。
+    """
+    user = get_current_user()
+    if not user:
+        return jsonify({"success": False, "error": "请先登录"}), 401
+
+    data = request.get_json(silent=True) or {}
+    file_path = data.get("file_path")
+    if not file_path or not os.path.isfile(file_path):
+        return jsonify({"success": False, "error": "安装包文件不存在"}), 400
+
+    # 安全检查：仅允许执行 _UPDATE_TEMP_DIR 下的文件，防止路径注入
+    if not os.path.abspath(file_path).startswith(os.path.abspath(_UPDATE_TEMP_DIR)):
+        return jsonify({"success": False, "error": "非法的文件路径"}), 400
+
+    try:
+        # 用 /SILENT 触发 Inno Setup 静默安装； detachment=True 让子进程独立运行
+        subprocess.Popen(
+            [file_path, "/SILENT", "/NORESTART"],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        )
+        return jsonify({"success": True, "message": "安装已启动，服务即将关闭"})
+    except Exception as e:
+        return jsonify({"success": False, "error": f"启动安装失败: {e}"}), 500
+
+
 if __name__ == "__main__":
-    print("""
+    _cur_ver = _read_current_version()
+    print(f"""
 ============================================
-       BeiKe Assistant (Web) - 登录版 5.3
+       BeiKe Assistant (Web) - v{_cur_ver}
        http://localhost:5000
        Ctrl+C to exit
 ============================================
